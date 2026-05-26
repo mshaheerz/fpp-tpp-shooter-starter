@@ -1,0 +1,15 @@
+{
+  "base": "./assets/character/ybot.glb",
+  "animations": {
+    "idle": "./assets/character/animations/idle.glb",
+    "walk_forward": "./assets/character/animations/walk_forward.glb",
+    "run_forward": "./assets/character/animations/run_forward.glb",
+    "strafe_left": "./assets/character/animations/strafe_left.glb",
+    "strafe_right": "./assets/character/animations/strafe_right.glb",
+    "walk_backward": "./assets/character/animations/walk_backward.glb",
+    "jump": "./assets/character/animations/jump.glb",
+    "firing_rifle": "./assets/character/animations/firing_rifle.glb",
+    "reload_rifle": "./assets/character/animations/reload_rifle.glb",
+    "aim_idle": "./assets/character/animations/aim_idle.glb"
+  }
+}
