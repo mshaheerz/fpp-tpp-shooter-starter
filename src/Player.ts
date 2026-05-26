@@ -16,6 +16,11 @@ const GROUND_ACCEL = 80
 const AIR_ACCEL = 30
 const FRICTION = 8.0
 const JUMP_VELOCITY = 5.5
+// Improved jump feel
+const COYOTE_TIME = 0.12
+const JUMP_BUFFER_TIME = 0.12
+const VARIABLE_JUMP_CUTOFF = 0.6
+const MAX_FALL_SPEED = -30
 
 const _hVel = new Vector3()
 const _wishDir = new Vector3()
@@ -35,6 +40,8 @@ export class Player {
   readonly position = new Vector3()
   readonly velocity = new Vector3()
   grounded = false
+  private coyoteTimer = 0
+  private jumpBuffer = 0
   /** Yaw-only forward direction the player wants to travel (in world XZ). */
   readonly moveDir = new Vector3()
   /** Visible capsule mesh, swappable / hideable. */
@@ -67,6 +74,15 @@ export class Player {
       this.body,
     )
     this.grounded = !!groundHit && groundHit.normal.y >= GROUND_NORMAL_Y_MIN
+
+    // Update coyote timer and jump buffer timers
+    if (this.grounded) {
+      this.coyoteTimer = 0
+    } else {
+      this.coyoteTimer += dt
+    }
+    if (input.wasPressed('Space')) this.jumpBuffer = JUMP_BUFFER_TIME
+    this.jumpBuffer = Math.max(0, this.jumpBuffer - dt)
 
     // 3) Build wish-direction in world space from camera yaw.
     const fwd = camera.yaw
@@ -115,9 +131,11 @@ export class Player {
         _hVel.multiplyScalar(newSpeed / speed)
       }
       this.accelerate(_hVel, _wishDir, wishSpeed, GROUND_ACCEL, dt)
-      if (input.isDown('Space')) {
+      // Jump (consume buffer): allow within coyote window after leaving ground
+      if (this.jumpBuffer > 0 && (this.grounded || this.coyoteTimer <= COYOTE_TIME)) {
         this.velocity.y = JUMP_VELOCITY
         this.grounded = false
+        this.jumpBuffer = 0
       }
     } else {
       // Air control: weaker accel, no friction.
@@ -125,6 +143,12 @@ export class Player {
     }
 
     // 4) Commit horizontal velocity back to the body; let gravity handle vy.
+    // Variable jump height: if player released jump early, clamp upward vel
+    if (!input.isDown('Space') && this.velocity.y > VARIABLE_JUMP_CUTOFF) {
+      this.velocity.y = Math.min(this.velocity.y, JUMP_VELOCITY * 0.6)
+    }
+    // Clamp fall speed
+    if (this.velocity.y < MAX_FALL_SPEED) this.velocity.y = MAX_FALL_SPEED
     this.body.setLinvel({ x: _hVel.x, y: this.velocity.y, z: _hVel.z }, true)
 
     // Visual mesh follows the capsule.

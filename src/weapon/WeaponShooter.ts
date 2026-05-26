@@ -36,7 +36,7 @@ export class WeaponShooter {
     private decals: DecalSystem,
     private shells: BulletInstancedParticleSystem,
     private onHit?: (hit: HitInfo, stats: WeaponStats, shotDir: Vector3) => void,
-    private onShot?: (muzzle: Vector3, shotDir: Vector3) => void,
+    private onShot?: (muzzle: Vector3, shotDir: Vector3, stats?: WeaponStats) => void,
   ) {}
 
   fire(camera: CameraRig, stats: WeaponStats, playerBody: RAPIER.RigidBody, onCameraShake: (amount: number) => void) {
@@ -80,7 +80,7 @@ export class WeaponShooter {
     this.muzzleFx.spawn(_muzzle, 1, 0.025, 0.7, 3, _dir)
     _muzzleOut.copy(_muzzle)
     _shotDirOut.copy(_dir)
-    this.onShot?.(_muzzleOut, _shotDirOut)
+    this.onShot?.(_muzzleOut, _shotDirOut, stats)
 
     // Brass shell out the ejection port, perpendicular-ish to the weapon forward.
     this.weapons.getEjectWorld(_eject)

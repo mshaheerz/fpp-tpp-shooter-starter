@@ -132,8 +132,9 @@ export class ThirdPersonCharacter {
       entries.map(async ([name, path]) => {
         try {
           const gltf = await loader.loadAsync(path)
-          const clip: AnimationClip | undefined = gltf.animations[0]
-          if (clip) return [name, clip] as const
+          // Prefer the first non-empty clip (some FBX exports include an empty "Take 001").
+          const clip: AnimationClip | undefined = gltf.animations.find((c) => c && c.tracks && c.tracks.length > 0) ?? gltf.animations[0]
+          if (clip && clip.tracks && clip.tracks.length > 0) return [name, clip] as const
         } catch (e) {
           console.warn('[character] failed to load anim', name, path, e)
         }

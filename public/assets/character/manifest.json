@@ -11,5 +11,6 @@
     "firing_rifle": "./assets/character/animations/firing_rifle.glb",
     "reload_rifle": "./assets/character/animations/reload_rifle.glb",
     "aim_idle": "./assets/character/animations/aim_idle.glb"
+    ,"falling_to_landing": "./assets/character/animations/falling_to_landing.glb"
   }
 }

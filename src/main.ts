@@ -17,7 +17,9 @@ import { WeaponLogicSystem } from './weapon/WeaponLogicSystem'
 import { HUD } from './HUD'
 import { Color, SRGBColorSpace, TextureLoader, Vector3 } from 'three'
 import { WeaponTransformDebugger } from './debug/WeaponTransformDebugger'
+import PlayerDebugger from './debug/PlayerDebugger'
 import { SpriteFxSystem } from './particle/SpriteFxSystem'
+import AudioManager from './audio/AudioManager'
 
 const FIXED_DT = 1 / 60
 const _eyeTmp = new Vector3()
@@ -26,9 +28,22 @@ const _hitNormal = new Vector3()
 const _up = new Vector3(0, 1, 0)
 
 async function main() {
+  const loadingEl = document.getElementById('loading')
+  const loadingText = document.getElementById('loading-text')
+  function setLoading(t: string) {
+    if (loadingText) loadingText.textContent = t
+  }
+  function hideLoading() {
+    if (loadingEl) loadingEl.style.display = 'none'
+  }
+
+  setLoading('Initializing physics...')
   const physics = await PhysicsSystem.init()
+  setLoading('Initializing renderer...')
   const renderer = new Renderer()
+  setLoading('Building scene...')
   const scene = new Scene()
+  setLoading('Setting up camera...')
   const cam = new CameraRig()
   const input = new InputManager(renderer.domElement, document.getElementById('lock-hint'))
 
@@ -39,6 +54,7 @@ async function main() {
   })
 
   // Map: Kenney modular-only mode.
+  setLoading('Loading map...')
   const hasKenneyRange = await scene.addKenneyShootRange(physics)
   if (hasKenneyRange) {
     console.log('[map] Kenney modular map loaded (reactive targets enabled)')
@@ -51,9 +67,13 @@ async function main() {
   scene.add(player.debugMesh)
   player.debugMesh.visible = false
 
+  // Player debugger UI
+  new PlayerDebugger(player)
+
   const character = new ThirdPersonCharacter()
   scene.add(character.object)
   try {
+    setLoading('Loading character...')
     const res = await fetch('./assets/character/manifest.json')
     if (!res.ok) throw new Error('no manifest')
     const manifest = await res.json()
@@ -78,6 +98,7 @@ async function main() {
   let smokeSprites: SpriteFxSystem | null = null
   let flashSprites: SpriteFxSystem | null = null
   try {
+    setLoading('Loading textures...')
     const loader = new TextureLoader()
     const [smokeTex, flashTex] = await Promise.all([
       loader.loadAsync('./assets/kenney/smoke/PNG/White%20puff/whitePuff12.png'),
@@ -105,6 +126,31 @@ async function main() {
   scene.add(decals.object)
   const shells = new BulletInstancedParticleSystem()
   scene.add(shells.mesh)
+
+  // Audio manager: preload weapon SFX from provided archives (fallback synth used for footsteps/landing)
+  const audio = new AudioManager()
+  try {
+    // preload file data (decoding will occur once user allows audio)
+    await audio.preloadMap({
+      ak47: './assets/sfx/weapons/762x39 Single WAV.wav',
+      pistol: './assets/sfx/weapons/556 Single WAV.wav',
+    })
+    // Don't await resume here (must be a user gesture). Install a one-time
+    // gesture listener to resume audio when the user first interacts.
+    const resumeOnGesture = async () => {
+      try {
+        await audio.resume()
+        window.removeEventListener('pointerdown', resumeOnGesture)
+        window.removeEventListener('keydown', resumeOnGesture)
+      } catch (e) {
+        console.warn('[audio] resume on gesture failed', e)
+      }
+    }
+    window.addEventListener('pointerdown', resumeOnGesture)
+    window.addEventListener('keydown', resumeOnGesture)
+  } catch (e) {
+    console.warn('[audio] preload failed', e)
+  }
 
   const shooter = new WeaponShooter(
     physics,
@@ -155,7 +201,14 @@ async function main() {
         })
       }
     },
-    (muzzle, shotDir) => {
+    (muzzle, shotDir, stats) => {
+      // play weapon shot SFX (stat id used to choose buffer)
+      try {
+        const id = stats?.id ?? 'ak47'
+        audio.play(id, { position: { x: muzzle.x, y: muzzle.y, z: muzzle.z }, volume: 0.9, rate: 1 + (Math.random() - 0.5) * 0.06 })
+      } catch (e) {
+        console.warn('[audio] play failed', e)
+      }
       flashSprites?.spawn(muzzle, {
         count: 1,
         life: [0.025, 0.045],
@@ -190,10 +243,14 @@ async function main() {
   await equip('ak47')
   applyMode()
 
+  // All done — hide loading overlay
+  hideLoading()
+
   const logic = new WeaponLogicSystem(input, cam, weapons, shooter, fpsMesh, character, player.body, equip)
   const hud = new HUD(renderer.hudCtx, renderer.hudCanvas)
 
   let last = performance.now()
+  let prevGrounded = player.grounded
   let acc = 0
   let frames = 0
   let fpsTimer = 0
@@ -213,6 +270,26 @@ async function main() {
       physics.step(FIXED_DT)
       acc -= FIXED_DT
     }
+
+    // Landing detection: if we were airborne and now grounded, play the landing
+    // animation when falling fast enough to warrant it.
+    if (!prevGrounded && player.grounded) {
+      const impactSpeed = player.velocity.y
+      if (impactSpeed < -2.0) {
+        if (character.animator.hasClip('falling_to_landing')) {
+          character.animator.playOverlay('falling_to_landing', false)
+        }
+        // landing SFX
+        try {
+          audio.play('landing', { position: { x: player.position.x, y: player.position.y, z: player.position.z }, volume: 1.0 })
+        } catch (e) {
+          console.warn('[audio] landing play failed', e)
+        }
+      }
+    }
+    prevGrounded = player.grounded
+
+    // footsteps SFX removed — will be provided later by user.
 
     logic.update(dt)
     scene.update(dt)
