@@ -20,6 +20,7 @@ import { WeaponTransformDebugger } from './debug/WeaponTransformDebugger'
 import PlayerDebugger from './debug/PlayerDebugger'
 import { SpriteFxSystem } from './particle/SpriteFxSystem'
 import AudioManager from './audio/AudioManager'
+import { MapMenu } from './MapMenu'
 
 const FIXED_DT = 1 / 60
 const _eyeTmp = new Vector3()
@@ -53,15 +54,30 @@ async function main() {
     cam.three.updateProjectionMatrix()
   })
 
-  // Map: Kenney modular-only mode.
-  setLoading('Loading map...')
-  const hasKenneyRange = await scene.addKenneyShootRange(physics)
-  if (hasKenneyRange) {
-    console.log('[map] Kenney modular map loaded (reactive targets enabled)')
-  } else {
-    scene.addProceduralGround(physics)
-    console.log('[map] Kenney assets missing; using procedural fallback')
+  // Map selection: show the menu and wait for the user to pick a map. The
+  // menu is HTML-based (see index.html + MapMenu.ts) so it runs before the
+  // game loop starts. M reopens it in-game to swap maps without reloading.
+  const mapMenu = new MapMenu()
+  let currentMapId = 'shootRange'
+
+  async function loadMap(id: string) {
+    setLoading(`Loading map: ${id}…`)
+    if (loadingEl) loadingEl.style.display = ''
+    const ok = await scene.loadMapById(id, physics)
+    if (!ok) {
+      scene.addProceduralGround(physics)
+      console.log('[map] assets missing for', id, '— using procedural fallback')
+    } else {
+      console.log('[map] loaded', id)
+    }
+    currentMapId = id
+    hideLoading()
   }
+
+  // Hide the loading overlay so the menu is visible, then wait for a pick.
+  hideLoading()
+  const firstPick = await mapMenu.show()
+  await loadMap(firstPick)
 
   const player = new Player(physics)
   scene.add(player.debugMesh)
@@ -230,6 +246,9 @@ async function main() {
     // views. The only thing that changes on V toggle is camera position + head
     // visibility on the character.
     await weapons.attachTo(id, character.rightHand, stats.tppOffset)
+    // Swap the character's locomotion animation set so the stance matches the
+    // weapon (pistol hold vs rifle hold vs knife stance).
+    character.useAnimationSet(id === 'pistol' ? 'pistol' : id === 'knife' ? 'knife' : 'rifle')
   }
 
   const applyMode = () => {
@@ -242,9 +261,6 @@ async function main() {
   cam.onModeChange = applyMode
   await equip('ak47')
   applyMode()
-
-  // All done — hide loading overlay
-  hideLoading()
 
   const logic = new WeaponLogicSystem(input, cam, weapons, shooter, fpsMesh, character, player.body, equip)
   const hud = new HUD(renderer.hudCtx, renderer.hudCanvas)
@@ -263,6 +279,19 @@ async function main() {
     if (input.wasPressed('Digit1')) logic.requestSwitch('ak47')
     if (input.wasPressed('Digit2')) logic.requestSwitch('pistol')
     if (input.wasPressed('Digit3')) logic.requestSwitch('knife')
+    if (input.wasPressed('KeyM') && !mapMenu.isOpen()) {
+      // Open the map menu; selecting a different map clears the current one
+      // and rebuilds from the registry. Re-selecting the same id is a no-op
+      // beyond closing the menu (handy as a "pause"). The pointer-lock hint
+      // returns once the user clicks the canvas again.
+      void mapMenu.show().then(async (id) => {
+        if (id === currentMapId) return
+        await loadMap(id)
+        // Reset the player so they don't fall through removed geometry.
+        player.body.setTranslation({ x: 0, y: 5, z: 0 }, true)
+        player.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+      })
+    }
 
     acc += dt
     while (acc >= FIXED_DT) {
@@ -271,15 +300,17 @@ async function main() {
       acc -= FIXED_DT
     }
 
-    // Landing detection: if we were airborne and now grounded, play the landing
-    // animation when falling fast enough to warrant it.
+    // Landing detection: if we were airborne and now grounded, optionally play
+    // the landing animation + impact thud. A single threshold so the visual
+    // flex and the sound agree — small hops produce neither (the air-layer
+    // additive already shows the legs tucking, no need to also overlay a
+    // full-body landing pose that would fight the locomotion).
     if (!prevGrounded && player.grounded) {
       const impactSpeed = player.velocity.y
-      if (impactSpeed < -2.0) {
+      if (impactSpeed < -7.0) {
         if (character.animator.hasClip('falling_to_landing')) {
           character.animator.playOverlay('falling_to_landing', false)
         }
-        // landing SFX
         try {
           audio.play('landing', { position: { x: player.position.x, y: player.position.y, z: player.position.z }, volume: 1.0 })
         } catch (e) {

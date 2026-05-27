@@ -6,6 +6,7 @@ import {
   Vector3,
   MathUtils,
   AnimationClip,
+  AnimationUtils,
   Mesh,
   SkinnedMesh,
   BoxGeometry,
@@ -63,6 +64,9 @@ export class ThirdPersonCharacter {
   animator: CharacterAnimator
   /** Logical state, updated each frame from velocity. */
   locomotion: LocomotionState = 'idle'
+  /** Last state held while grounded. Used to keep the upper-body stance during
+   *  the airborne window (so the rifle hold doesn't snap to bind pose). */
+  private lastGroundedState: LocomotionState = 'idle'
 
   private yaw = 0
   private placeholder = true
@@ -144,14 +148,12 @@ export class ThirdPersonCharacter {
     for (const [name, clip] of loaded) {
       if (!clip) continue
       // Mixamo's "in place" animations still embed a small Hips position track.
-      // For overlays (firing/reload) we strip all position tracks so when they
-      // end, the root doesn't jump back — character no longer "steps back".
-      // For locomotion we leave the Hips Y track (bob) but kill XZ drift.
-      const isOverlay = name === 'firing_rifle' || name === 'reload_rifle' || name === 'aim_idle'
+      // For overlays (firing/reload/aim) we strip ALL position tracks so when
+      // they end, the root doesn't jump back. For locomotion we leave Hips Y
+      // (bob) but kill XZ drift.
+      const isOverlay = name === 'firing_rifle' || name === 'reload_rifle' || name === 'aim_idle' || name === 'knife_stab'
       clip.tracks = clip.tracks.filter((track) => {
         if (!track.name.endsWith('.position')) return true
-        // Only the Hips bone has meaningful root position; other bones use it
-        // for skeleton-bind offsets and should stay.
         if (!/Hips/i.test(track.name)) return true
         if (isOverlay) return false
         // Locomotion: drop X and Z components by zeroing them.
@@ -167,7 +169,77 @@ export class ThirdPersonCharacter {
       this.animator.addClip(name, clip)
     }
 
-    // Standard locomotion bindings; names match the README/manifest.
+    // Synthesize an ADDITIVE air-layer clip from the rifle jump (and pistol jump
+    // if present) — legs + hips-Y bob only. This rides on top of whatever
+    // locomotion clip is active so the arms keep holding the gun and the head
+    // never spins. Without this, the full-body Mixamo jump clip wrecks the
+    // upper-body pose.
+    const sourceJump = this.animator.getClip('jump')
+    if (sourceJump) {
+      this.animator.addClip('jump_air', buildLegsOnlyAdditive(sourceJump, 'jump_air'))
+    }
+    const sourcePistolJump = this.animator.getClip('pistol_jump')
+    if (sourcePistolJump) {
+      this.animator.addClip('pistol_jump_air', buildLegsOnlyAdditive(sourcePistolJump, 'pistol_jump_air'))
+    }
+
+    // Default to the rifle set; weapon swaps call useAnimationSet().
+    this.useAnimationSet('rifle')
+    this.animator.setLocomotion('idle')
+  }
+
+  /**
+   * Swap the locomotion clip set. Called on weapon change so the character
+   * stance matches (rifle hold vs pistol hold vs unarmed).
+   *
+   * Falls back per-state when a weapon-specific clip is missing — e.g. if
+   * `pistol_jump` is absent, jump uses the rifle `jump`. Keeps the system
+   * resilient to incomplete asset sets.
+   */
+  useAnimationSet(set: 'rifle' | 'pistol' | 'knife') {
+    const has = (n: string) => this.animator.hasClip(n)
+    // Pick the additive air clip that matches the weapon stance.
+    const airClip =
+      set === 'pistol' && has('pistol_jump_air')
+        ? 'pistol_jump_air'
+        : has('jump_air')
+          ? 'jump_air'
+          : null
+    if (airClip) this.animator.bindAirAdditive(airClip)
+    if (set === 'knife' && has('knife_idle')) {
+      // Knife pack only ships an idle + a stab. Everything else falls back to
+      // the rifle locomotion clips — the character keeps moving naturally,
+      // and the stab is delivered via a one-shot overlay from the weapon FSM.
+      this.animator.bindLocomotion({
+        idle: 'knife_idle',
+        walk: 'walk_forward',
+        run: 'run_forward',
+        strafeL: 'strafe_left',
+        strafeR: 'strafe_right',
+        back: 'walk_backward',
+        runBack: has('run_backward') ? 'run_backward' : 'walk_backward',
+        jump: 'jump',
+        fall: has('falling_to_landing') ? 'falling_to_landing' : 'jump',
+        land: 'jump',
+      })
+      return
+    }
+    if (set === 'pistol' && has('pistol_idle')) {
+      this.animator.bindLocomotion({
+        idle: 'pistol_idle',
+        walk: has('pistol_walk_forward') ? 'pistol_walk_forward' : 'walk_forward',
+        run: has('pistol_run_forward') ? 'pistol_run_forward' : 'run_forward',
+        strafeL: has('pistol_strafe_left') ? 'pistol_strafe_left' : 'strafe_left',
+        strafeR: has('pistol_strafe_right') ? 'pistol_strafe_right' : 'strafe_right',
+        back: has('pistol_walk_backward') ? 'pistol_walk_backward' : 'walk_backward',
+        runBack: has('pistol_run_backward') ? 'pistol_run_backward' : 'run_backward',
+        jump: has('pistol_jump') ? 'pistol_jump' : 'jump',
+        fall: has('falling_to_landing') ? 'falling_to_landing' : 'jump',
+        land: has('pistol_jump') ? 'pistol_jump' : 'jump',
+      })
+      return
+    }
+    // Rifle (default) set.
     this.animator.bindLocomotion({
       idle: 'idle',
       walk: 'walk_forward',
@@ -175,9 +247,11 @@ export class ThirdPersonCharacter {
       strafeL: 'strafe_left',
       strafeR: 'strafe_right',
       back: 'walk_backward',
+      runBack: has('run_backward') ? 'run_backward' : 'walk_backward',
       jump: 'jump',
+      fall: has('falling_to_landing') ? 'falling_to_landing' : 'jump',
+      land: 'jump',
     })
-    this.animator.setLocomotion('idle')
   }
 
   update(playerPos: Vector3, velocity: Vector3, grounded: boolean, cameraYaw: number, dt: number) {
@@ -207,6 +281,7 @@ export class ThirdPersonCharacter {
     } else {
       targetYaw = cameraYaw + Math.PI
     }
+    
     // Wrap-aware lerp.
     const delta = wrapAngle(targetYaw - this.yaw)
     this.yaw += delta * Math.min(1, YAW_LERP_RATE * dt)
@@ -222,20 +297,36 @@ export class ThirdPersonCharacter {
     const horizSpeed = Math.sqrt(speedSq)
     let next: LocomotionState
     if (!grounded) {
-      next = 'jump'
-    } else if (horizSpeed < MOVE_SPEED_THRESHOLD) {
-      next = 'idle'
-    } else if (Math.abs(rightSpeed) > Math.abs(fwdSpeed)) {
-      next = rightSpeed > 0 ? 'strafeR' : 'strafeL'
-    } else if (fwdSpeed < -MOVE_SPEED_THRESHOLD) {
-      next = 'back'
-    } else if (horizSpeed > RUN_SPEED_THRESHOLD) {
-      next = 'run'
+      // Airborne: keep whatever ground locomotion was active. Mixamo's full-body
+      // jump clip fights the rifle hold and snaps the arms to bind-pose
+      // (T-pose-ish) plus spins the head 360° because of a quaternion sign
+      // flip on the Head track. Reusing the ground stance during the airborne
+      // window keeps the upper body holding the gun — the capsule rising and
+      // falling gives the visual sense of the jump on its own. This is the
+      // same trick most modern FPS games use (Apex, Valorant, etc).
+      next = this.lastGroundedState
     } else {
-      next = 'walk'
+      if (horizSpeed < MOVE_SPEED_THRESHOLD) {
+        next = 'idle'
+      } else if (Math.abs(rightSpeed) > Math.abs(fwdSpeed)) {
+        next = rightSpeed > 0 ? 'strafeR' : 'strafeL'
+      } else if (fwdSpeed < -MOVE_SPEED_THRESHOLD) {
+        // Backwards: sprint variant if moving fast enough.
+        next = horizSpeed > RUN_SPEED_THRESHOLD ? 'runBack' : 'back'
+      } else if (horizSpeed > RUN_SPEED_THRESHOLD) {
+        next = 'run'
+      } else {
+        next = 'walk'
+      }
+      // Remember the last grounded state so airborne can fall back to it.
+      this.lastGroundedState = next
     }
     this.locomotion = next
     this.animator.setLocomotion(next)
+    // Layer the additive jump (legs only) while airborne so the user actually
+    // sees a jump — legs tuck, then extend — while the locomotion-driven upper
+    // body keeps holding the gun.
+    this.animator.setAir(!grounded)
 
     this.animator.update(dt)
   }
@@ -313,6 +404,34 @@ function findBoneByAnySuffix(root: Object3D, suffixes: string[]): Bone | null {
     }
   })
   return found
+}
+
+/**
+ * Build an additive clip that contains only the lower-body tracks from `source`
+ * (UpLeg / Leg / Foot / Toe + Hips Y bob). The intent is to layer this on top
+ * of locomotion while airborne, so:
+ *   - the legs tuck/extend visibly as the character jumps and falls;
+ *   - the arms, spine, neck and head stay driven by whatever locomotion clip
+ *     was running, so the rifle hold is preserved;
+ *   - the Hips Y track adds the small vertical bob the jump anim has baked in.
+ *
+ * Frame 0 of `source` is used as the reference pose for `makeClipAdditive` —
+ * the first frame of Mixamo's jump is essentially the bind pose, so the
+ * additive delta starts at zero and ramps in cleanly when faded to weight 1.
+ */
+function buildLegsOnlyAdditive(source: AnimationClip, name: string): AnimationClip {
+  const clone = source.clone()
+  clone.name = name
+  // Keep ONLY the leg chain. We deliberately drop Hips entirely — additive deltas
+  // on Hips.rotation propagate down the whole skeleton (it's the root bone), so
+  // any tilt baked into the jump clip's hips would visibly drag the chest,
+  // arms and head with it and visually conflict with the locomotion clip
+  // that's still driving those bones. Vertical hip-bob isn't worth that cost.
+  clone.tracks = clone.tracks.filter((track) =>
+    /(UpLeg|Leg|Foot|Toe)/i.test(track.name) && !/Hips/i.test(track.name),
+  )
+  AnimationUtils.makeClipAdditive(clone)
+  return clone
 }
 
 /**

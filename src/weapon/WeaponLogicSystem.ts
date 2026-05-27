@@ -93,9 +93,10 @@ export class WeaponLogicSystem {
 
     if (this.input.wasPressed('KeyR')) this.requestReload()
 
-    // ADS state mirrors RMB. Camera reads `camera.ads` for FOV/sensitivity,
-    // Player reads it for movement slowdown, Shooter reads it for spread.
-    const wantAds = this.input.rmb && this.state !== 'Reloading' && this.state !== 'Switching'
+    const isMelee = this.current === 'knife'
+
+    // ADS state mirrors RMB — disabled for melee (the knife has nothing to aim).
+    const wantAds = !isMelee && this.input.rmb && this.state !== 'Reloading' && this.state !== 'Switching'
     this.camera.ads = wantAds
 
     // Drive the aim animation. Firing takes priority — when LMB is held the
@@ -113,7 +114,16 @@ export class WeaponLogicSystem {
       const s = this.stats
       const interval = 60 / s.rpm
       if (this.timeSinceShot >= interval) {
-        if (s.magSize > 0 && this.ammo[this.current].mag <= 0) {
+        if (isMelee) {
+          // Knife: play stab once, no raycast / no bullet. The clip itself is
+          // the gameplay beat. Mixamo's "Stabbing" is captured at a slow
+          // demonstration pace — speed it up so it reads as a quick combat
+          // stab rather than a stage rehearsal.
+          if (this.character.animator.hasClip('knife_stab')) {
+            this.character.animator.playOverlay('knife_stab', false, 1.8)
+          }
+          this.timeSinceShot = 0
+        } else if (s.magSize > 0 && this.ammo[this.current].mag <= 0) {
           // Out of mag — auto-reload.
           this.requestReload()
         } else {
@@ -122,7 +132,8 @@ export class WeaponLogicSystem {
         }
       }
       // Keep the firing animation looping while LMB is held (don't restart per bullet).
-      if (!this.firingAnimActive && s.magSize > 0 && this.ammo[this.current].mag > 0) {
+      // Suppressed for melee — the stab is a one-shot overlay above.
+      if (!isMelee && !this.firingAnimActive && s.magSize > 0 && this.ammo[this.current].mag > 0) {
         this.character.animator.playOverlay('firing_rifle', true)
         this.firingAnimActive = true
       }

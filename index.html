@@ -18,6 +18,50 @@
         pointer-events: none;
       }
       #lock-hint.hidden { display: none; }
+
+      #map-menu {
+        position: fixed; inset: 0; z-index: 90000;
+        background: radial-gradient(circle at 50% 35%, rgba(28,32,38,0.92), rgba(8,10,14,0.96));
+        display: flex; align-items: center; justify-content: center;
+        font: 14px/1.4 system-ui, -apple-system, sans-serif; color: #e6e8ec;
+      }
+      #map-menu.hidden { display: none; }
+      #map-menu .map-menu-inner {
+        width: min(960px, 92vw); max-height: 90vh; overflow-y: auto;
+        padding: 28px 28px 22px;
+      }
+      #map-menu h1 {
+        margin: 0 0 22px; font-size: 22px; letter-spacing: 0.06em;
+        text-transform: uppercase; font-weight: 600; color: #fff;
+      }
+      #map-menu-grid {
+        display: grid; gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+      .map-card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px; padding: 18px 18px 16px;
+        cursor: pointer; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+      }
+      .map-card:hover {
+        background: rgba(255,255,255,0.08);
+        border-color: rgba(255,255,255,0.22);
+        transform: translateY(-1px);
+      }
+      .map-card .map-name {
+        font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 6px;
+      }
+      .map-card .map-desc {
+        font-size: 12.5px; color: #b8bdc6; line-height: 1.5;
+      }
+      .map-menu-footer {
+        margin-top: 20px; color: #8a8f96; font-size: 12px; text-align: right;
+      }
+      .map-menu-footer kbd {
+        background: rgba(255,255,255,0.1); border-radius: 4px;
+        padding: 1px 6px; font: 11px/1 ui-monospace, monospace; color: #d6d9de;
+      }
     </style>
   </head>
   <body>
@@ -28,7 +72,14 @@
         <div id="loading-text">Loading…</div>
       </div>
     </div>
-    <div id="lock-hint">Click to play — WASD / Space / Shift, R reload, 1/2/3 swap, V toggle FPP/TPP</div>
+    <div id="map-menu" class="hidden">
+      <div class="map-menu-inner">
+        <h1>Select Map</h1>
+        <div id="map-menu-grid"></div>
+        <div class="map-menu-footer">Press <kbd>M</kbd> in game to reopen this menu</div>
+      </div>
+    </div>
+    <div id="lock-hint">Click to play — WASD / Space / Shift, R reload, 1/2/3 swap, V toggle FPP/TPP, M change map</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

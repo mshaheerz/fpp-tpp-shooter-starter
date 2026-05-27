@@ -7,10 +7,22 @@
     "strafe_left": "./assets/character/animations/strafe_left.glb",
     "strafe_right": "./assets/character/animations/strafe_right.glb",
     "walk_backward": "./assets/character/animations/walk_backward.glb",
+    "run_backward": "./assets/character/animations/run_backward.glb",
     "jump": "./assets/character/animations/jump.glb",
     "firing_rifle": "./assets/character/animations/firing_rifle.glb",
     "reload_rifle": "./assets/character/animations/reload_rifle.glb",
-    "aim_idle": "./assets/character/animations/aim_idle.glb"
-    ,"falling_to_landing": "./assets/character/animations/falling_to_landing.glb"
+    "aim_idle": "./assets/character/animations/aim_idle.glb",
+    "falling_to_landing": "./assets/character/animations/falling_to_landing.glb",
+    "pistol_idle": "./assets/character/animations/pistol_idle.glb",
+    "pistol_walk_forward": "./assets/character/animations/pistol_walk_forward.glb",
+    "pistol_walk_backward": "./assets/character/animations/pistol_walk_backward.glb",
+    "pistol_run_forward": "./assets/character/animations/pistol_run_forward.glb",
+    "pistol_run_backward": "./assets/character/animations/pistol_run_backward.glb",
+    "pistol_strafe_left": "./assets/character/animations/pistol_strafe_left.glb",
+    "pistol_strafe_right": "./assets/character/animations/pistol_strafe_right.glb",
+    "pistol_jump": "./assets/character/animations/pistol_jump.glb",
+    "pistol_crouch_idle": "./assets/character/animations/pistol_crouch_idle.glb",
+    "knife_idle": "./assets/character/animations/knife_idle.glb",
+    "knife_stab": "./assets/character/animations/knife_stab.glb"
   }
 }

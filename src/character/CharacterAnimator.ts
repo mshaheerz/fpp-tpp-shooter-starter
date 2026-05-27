@@ -1,4 +1,5 @@
 import {
+  AdditiveAnimationBlendMode,
   AnimationAction,
   AnimationClip,
   AnimationMixer,
@@ -15,7 +16,10 @@ export type LocomotionState =
   | 'strafeL'
   | 'strafeR'
   | 'back'
+  | 'runBack'
   | 'jump'
+  | 'fall'
+  | 'land'
 
 /** Seconds for a full weight change (1↔0). */
 const BLEND_TIME = 0.18
@@ -51,6 +55,8 @@ export class CharacterAnimator {
   /** action → target weight (0..1). Each frame, action.weight eases toward this. */
   private targetWeights = new Map<AnimationAction, number>()
   private finishHandler: ((e: { action: AnimationAction }) => void) | null = null
+  /** Additive air-layer action (jump leg tuck) playing on top of locomotion. */
+  private airAction: AnimationAction | null = null
 
   constructor(root: Object3D) {
     this.mixer = new AnimationMixer(root)
@@ -64,6 +70,10 @@ export class CharacterAnimator {
     return this.clips.has(name)
   }
 
+  getClip(name: string): AnimationClip | undefined {
+    return this.clips.get(name)
+  }
+
   private makeAction(name: string): AnimationAction | null {
     const clip = this.clips.get(name)
     if (!clip) return null
@@ -72,7 +82,38 @@ export class CharacterAnimator {
     return action
   }
 
+  /**
+   * Replace the current locomotion bindings (e.g. when swapping weapons so the
+   * character uses pistol_walk instead of walk_forward).
+   *
+   * Stops and detaches any previous locomotion actions, then rebinds. Preserves
+   * `currentLoco` — if the state still has a binding in the new set, it fades
+   * back in seamlessly; if not, falls to weight 0.
+   */
   bindLocomotion(map: Partial<Record<LocomotionState, string>>) {
+    // Remember the previous active locomotion clip's normalized phase
+    // (time / duration). Carrying this over to the new binding keeps the
+    // walk/run cycle in phase with the player's feet — without it, swapping
+    // weapons would restart the new clip at frame 0 while the body is still
+    // mid-stride, so a step would visibly stutter.
+    let carriedPhase: number | null = null
+    if (this.currentLoco) {
+      const prev = this.locoActions.get(this.currentLoco)
+      if (prev) {
+        const clip = prev.getClip()
+        const dur = clip?.duration ?? 0
+        if (dur > 0) carriedPhase = (prev.time % dur) / dur
+      }
+    }
+
+    // Stop and detach previous locomotion actions.
+    for (const action of this.locoActions.values()) {
+      this.targetWeights.delete(action)
+      action.stop()
+      action.weight = 0
+    }
+    this.locoActions.clear()
+
     for (const [state, clipName] of Object.entries(map) as Array<[LocomotionState, string]>) {
       const action = this.makeAction(clipName)
       if (!action) continue
@@ -83,6 +124,27 @@ export class CharacterAnimator {
       action.play()
       this.locoActions.set(state, action)
       this.targetWeights.set(action, 0)
+    }
+
+    // If we had an active locomotion state, raise its target weight in the new
+    // set — and SNAP the matching action straight to weight 1 instead of
+    // fading it in over BLEND_TIME. Without the snap, the brand-new action
+    // starts at weight 0 and ramps up while the *old* actions are already
+    // stopped, so for ~180 ms there's nothing driving the skeleton and bones
+    // drift toward bind pose — which on Mixamo rigs looks like a quick T-pose
+    // flash whenever the player swaps weapons. We also seed the matching new
+    // action's `time` to the previous active clip's phase so the cycle stays
+    // in step across the swap.
+    if (this.currentLoco && !this.activeOverlay) {
+      for (const [s, a] of this.locoActions) {
+        const target = s === this.currentLoco ? 1 : 0
+        this.targetWeights.set(a, target)
+        a.weight = target
+        if (target === 1 && carriedPhase != null) {
+          const dur = a.getClip()?.duration ?? 0
+          if (dur > 0) a.time = carriedPhase * dur
+        }
+      }
     }
   }
 
@@ -120,7 +182,7 @@ export class CharacterAnimator {
    * If the same overlay is already active, this is a no-op (won't restart it).
    * Use `stopOverlay()` and a fresh `playOverlay()` to force a restart.
    */
-  playOverlay(name: string, loop = false): AnimationAction | null {
+  playOverlay(name: string, loop = false, speed = 1): AnimationAction | null {
     let action = this.overlays.get(name)
     if (!action) {
       const made = this.makeAction(name)
@@ -135,13 +197,14 @@ export class CharacterAnimator {
     // If already active and same loop mode, leave it running.
     if (this.activeOverlay === action) {
       action.setLoop(loop ? LoopRepeat : LoopOnce, loop ? Infinity : 1)
+      action.setEffectiveTimeScale(speed)
       return action
     }
 
     action.setLoop(loop ? LoopRepeat : LoopOnce, loop ? Infinity : 1)
     action.reset()
     action.enabled = true
-    action.setEffectiveTimeScale(1)
+    action.setEffectiveTimeScale(speed)
     action.weight = 0
     action.play()
 
@@ -209,6 +272,37 @@ export class CharacterAnimator {
         this.targetWeights.set(a, s === cur ? 1 : 0)
       }
     }
+  }
+
+  /**
+   * Bind a clip as the additive air layer. The clip is expected to already be
+   * registered via `addClip()` and to already be additive (caller converts via
+   * AnimationUtils.makeClipAdditive before registering). Plays continuously at
+   * weight 0 — `setAir(true)` fades it in to weight 1 to add the jump leg-tuck
+   * on top of whatever locomotion is currently driving the body.
+   */
+  bindAirAdditive(name: string) {
+    if (this.airAction) {
+      this.targetWeights.delete(this.airAction)
+      this.airAction.stop()
+      this.airAction = null
+    }
+    const action = this.makeAction(name)
+    if (!action) return
+    action.blendMode = AdditiveAnimationBlendMode
+    action.setLoop(LoopRepeat, Infinity)
+    action.enabled = true
+    action.setEffectiveTimeScale(1)
+    action.weight = 0
+    action.play()
+    this.airAction = action
+    this.targetWeights.set(action, 0)
+  }
+
+  /** Fade the additive air layer in (true) or out (false). */
+  setAir(active: boolean) {
+    if (!this.airAction) return
+    this.targetWeights.set(this.airAction, active ? 1 : 0)
   }
 
   update(dt: number) {

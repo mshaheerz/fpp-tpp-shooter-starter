@@ -102,7 +102,10 @@ export const WEAPONS: Record<WeaponId, WeaponStats> = {
     modelUrl: './assets/weapons/knife.glb',
     magSize: 0,
     reserve: 0,
-    rpm: 120,
+    // Cooldown between successive stabs in melee mode. Paired with the
+    // playOverlay() speed=1.8 multiplier in WeaponLogicSystem so the next
+    // stab triggers near the end of the previous one's outward motion.
+    rpm: 150,
     damage: 60,
     spread: 0,
     recoil: { yaw: 0, pitch: 0 },

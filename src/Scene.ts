@@ -37,6 +37,8 @@ export class Scene {
   private reactiveTargets = new Set<ReactiveTarget>()
   private dynamicProps: DynamicProp[] = []
   private physics: PhysicsSystem | null = null
+  /** Root group for the currently-loaded map, or null when no map is loaded. */
+  private activeMapRoot: Group | null = null
 
   constructor() {
     this.three.background = new Color(0x9bbfe6)
@@ -135,39 +137,49 @@ export class Scene {
     return root
   }
 
-  async addKenneyShootRange(physics: PhysicsSystem): Promise<boolean> {
+  /**
+   * Begin authoring a map. Creates a fresh root group + a flat walkable base
+   * and returns a `MapBuilder` whose `place(...)` puts Kenney props at world
+   * coordinates. Maps live in `src/maps/<id>.ts` and call this once.
+   *
+   * `groundSize` is the side length of the visual + physics floor plane (m).
+   */
+  startMap(
+    physics: PhysicsSystem,
+    name: string,
+    opts?: { groundSize?: number; groundColor?: number; noDefaultGround?: boolean },
+  ): MapBuilder {
+    // Tear down any previous map first so loadMapById() can be called again.
+    this.clearMap(physics)
     this.physics = physics
-    const roads = './assets/kenney/roads/Models/GLB%20format/'
-    const prototype = './assets/kenney/prototype/Models/GLB%20format/'
-    const industrial = './assets/kenney/industrial/Models/GLB%20format/'
-    const suburban = './assets/kenney/suburban/Models/GLB%20format/'
 
     const root = new Group()
-    root.name = 'KenneyShootRange'
+    root.name = name
     this.three.add(root)
+    this.activeMapRoot = root
 
     let loadedAny = false
 
-    // Continuous walkable base so the scene reads as a true map, not floating tiles.
-    const base = new Mesh(
-      new PlaneGeometry(220, 220, 1, 1),
-      new MeshStandardMaterial({ color: 0x6d7c62, roughness: 0.98 }),
-    )
-    base.rotation.x = -Math.PI / 2
-    base.position.y = -0.02
-    base.receiveShadow = true
-    root.add(base)
-    base.updateMatrixWorld(true)
-    this.registerObjectColliders(base, physics)
+    // Monolithic GLB maps ship their own ground — skip the default plane so the
+    // collider doesn't intersect their floor and cause z-fighting / footstep
+    // weirdness. The default plane is still useful for Kenney-prop maps where
+    // the props don't form a complete ground surface.
+    if (!opts?.noDefaultGround) {
+      const groundSize = opts?.groundSize ?? 220
+      const groundColor = opts?.groundColor ?? 0x6d7c62
+      const base = new Mesh(
+        new PlaneGeometry(groundSize, groundSize, 1, 1),
+        new MeshStandardMaterial({ color: groundColor, roughness: 0.98 }),
+      )
+      base.rotation.x = -Math.PI / 2
+      base.position.y = -0.02
+      base.receiveShadow = true
+      root.add(base)
+      base.updateMatrixWorld(true)
+      this.registerObjectColliders(base, physics)
+    }
 
-    const tryPlace = async (
-      url: string,
-      pos: [number, number, number],
-      rotY = 0,
-      scale = 1,
-      reactive?: { kind: ReactiveKind; hp: number },
-      desiredHeight?: number,
-    ) => {
+    const place: MapBuilder['place'] = async (url, pos, rotY = 0, scale = 1, reactive, desiredHeight) => {
       try {
         const o = await this.loadProp(url)
         o.position.set(pos[0], pos[1], pos[2])
@@ -181,108 +193,110 @@ export class Scene {
         }
         root.add(o)
         o.updateMatrixWorld(true)
-
-        // Ground-snap by bbox so assets with different pivots all sit on the floor.
         const bb = new Box3().setFromObject(o, true)
         if (Number.isFinite(bb.min.y)) {
           o.position.y += pos[1] - bb.min.y
           o.updateMatrixWorld(true)
         }
-
         if (reactive) this.addReactiveTarget(o, reactive.kind, reactive.hp, physics)
         else this.registerObjectColliders(o, physics)
         loadedAny = true
       } catch {
-        // Ignore missing assets and continue building what we can.
+        // Missing assets are ignored so builds remain resilient.
       }
     }
 
-    const tileFoot = await this.getFootprint(`${roads}tile-low.glb`)
-    const roadFoot = await this.getFootprint(`${roads}road-straight.glb`)
-    const TILE = Math.max(1.8, tileFoot.x, tileFoot.z, roadFoot.x, roadFoot.z)
-    const GRID = 7
-    const HALF = Math.floor(GRID / 2)
-
-    // Base block grid.
-    for (let gx = -HALF; gx <= HALF; gx++) {
-      for (let gz = -HALF; gz <= HALF; gz++) {
-        await tryPlace(`${roads}tile-low.glb`, [gx * TILE, 0, gz * TILE], 0, 1)
+    /**
+     * Load a pre-authored monolithic GLB as the entire map. Walks every mesh
+     * and creates a Rapier trimesh collider per submesh so collisions match
+     * the visual geometry exactly. Use this for Blender / SketchUp / Sketchfab
+     * scenes that already contain the floor, walls, and props as one scene.
+     */
+    const loadGlb: MapBuilder['loadGlb'] = async (url, glbOpts) => {
+      try {
+        const loader = new GLTFLoader()
+        const gltf = await loader.loadAsync(url)
+        const sceneRoot = gltf.scene
+        const scale = glbOpts?.scale ?? 1
+        const yOffset = glbOpts?.yOffset ?? 0
+        sceneRoot.scale.setScalar(scale)
+        sceneRoot.position.y += yOffset
+        sceneRoot.traverse((o) => {
+          if ((o as Mesh).isMesh) {
+            const m = o as Mesh
+            m.castShadow = true
+            m.receiveShadow = true
+          }
+        })
+        root.add(sceneRoot)
+        sceneRoot.updateMatrixWorld(true)
+        this.registerObjectColliders(sceneRoot, physics)
+        loadedAny = true
+      } catch (e) {
+        console.warn('[map] failed to load GLB', url, e)
       }
     }
 
-    // Cross-shaped road network.
-    await tryPlace(`${roads}road-crossroad.glb`, [0, 0.01, 0], 0, 1)
-    for (let i = 1; i <= HALF; i++) {
-      await tryPlace(`${roads}road-straight.glb`, [0, 0.01, i * TILE], 0, 1)
-      await tryPlace(`${roads}road-straight.glb`, [0, 0.01, -i * TILE], 0, 1)
-      await tryPlace(`${roads}road-straight.glb`, [i * TILE, 0.01, 0], Math.PI / 2, 1)
-      await tryPlace(`${roads}road-straight.glb`, [-i * TILE, 0.01, 0], Math.PI / 2, 1)
+    return {
+      root,
+      physics,
+      place,
+      loadGlb,
+      footprint: (url) => this.getFootprint(url),
+      height: (url) => this.getHeight(url),
+      didLoadAny: () => loadedAny,
     }
-    await tryPlace(`${roads}road-intersection.glb`, [0, 0.01, HALF * TILE], 0, 1)
-    await tryPlace(`${roads}road-intersection.glb`, [0, 0.01, -HALF * TILE], 0, 1)
-    await tryPlace(`${roads}road-intersection.glb`, [HALF * TILE, 0.01, 0], Math.PI / 2, 1)
-    await tryPlace(`${roads}road-intersection.glb`, [-HALF * TILE, 0.01, 0], Math.PI / 2, 1)
+  }
 
-    // Block boundaries / arena edges using walls.
-    const edge = HALF * TILE + TILE
-    for (let i = -HALF - 1; i <= HALF + 1; i++) {
-      await tryPlace(`${prototype}wall.glb`, [i * TILE, 0, edge], 0, 1)
-      await tryPlace(`${prototype}wall.glb`, [i * TILE, 0, -edge], 0, 1)
-      await tryPlace(`${prototype}wall.glb`, [edge, 0, i * TILE], Math.PI / 2, 1)
-      await tryPlace(`${prototype}wall.glb`, [-edge, 0, i * TILE], Math.PI / 2, 1)
+  /**
+   * Remove the currently-loaded map (visual + physics) so a different one can
+   * be loaded. Safe to call when no map is loaded.
+   */
+  clearMap(physics: PhysicsSystem) {
+    // Remove dynamic reactive bodies first (they own Rapier rigid bodies).
+    for (const d of this.dynamicProps) {
+      try { physics.world.removeRigidBody(d.body) } catch { /* already gone */ }
     }
-    await tryPlace(`${prototype}wall-corner.glb`, [edge, 0, edge], 0, 1)
-    await tryPlace(`${prototype}wall-corner.glb`, [-edge, 0, edge], Math.PI / 2, 1)
-    await tryPlace(`${prototype}wall-corner.glb`, [-edge, 0, -edge], Math.PI, 1)
-    await tryPlace(`${prototype}wall-corner.glb`, [edge, 0, -edge], -Math.PI / 2, 1)
+    this.dynamicProps = []
+    // Remove every static map collider we tracked.
+    for (const [, collider] of this.mapColliders) {
+      if (!collider) continue
+      try { physics.world.removeCollider(collider, true) } catch { /* already gone */ }
+    }
+    this.mapColliders.clear()
+    this.reactiveTargets.clear()
+    this.reactiveByCollider.clear()
+    if (this.activeMapRoot) {
+      this.three.remove(this.activeMapRoot)
+      this.activeMapRoot = null
+    }
+  }
 
-    // Industrial + suburban building belts.
-    const industrialRow = [
-      { m: 'building-a.glb', x: -10, z: -10, r: Math.PI * 0.15, h: 7.2 },
-      { m: 'building-b.glb', x: -6, z: -11, r: Math.PI * 0.05, h: 7.2 },
-      { m: 'building-c.glb', x: -2, z: -10, r: Math.PI * 0.12, h: 7.2 },
-    ]
-    for (const b of industrialRow) {
-      await tryPlace(`${industrial}${b.m}`, [b.x, 0, b.z], b.r, 1, undefined, b.h)
+  /**
+   * Load a map by id from the registry. Returns true if anything loaded.
+   * Callers should fall back to `addProceduralGround()` on false.
+   */
+  async loadMapById(id: string, physics: PhysicsSystem): Promise<boolean> {
+    const mod = await import('./maps').then((m) => m.MAPS.find((mm) => mm.id === id))
+    if (!mod) {
+      console.warn('[map] unknown id', id)
+      return false
     }
-    const suburbanRow = [
-      { m: 'building-type-a.glb', x: 3, z: 10, r: Math.PI, h: 6.2 },
-      { m: 'building-type-b.glb', x: 7, z: 11, r: Math.PI * 0.9, h: 6.2 },
-      { m: 'building-type-c.glb', x: 11, z: 10, r: Math.PI * 0.95, h: 6.2 },
-    ]
-    for (const b of suburbanRow) {
-      await tryPlace(`${suburban}${b.m}`, [b.x, 0, b.z], b.r, 1, undefined, b.h)
-    }
-
-    // Decorative fences/trees.
-    for (let i = -2; i <= 2; i++) {
-      await tryPlace(`${suburban}fence-1x3.glb`, [10.6, 0, i * 2.2], Math.PI / 2, 1, undefined, 2.1)
-    }
-    await tryPlace(`${suburban}tree-large.glb`, [8, 0, 6], 0, 1, undefined, 5.5)
-    await tryPlace(`${suburban}tree-small.glb`, [12, 0, 5], 0, 1, undefined, 4.4)
-    await tryPlace(`${suburban}tree-small.glb`, [9, 0, 9], 0, 1, undefined, 4.4)
-
-    // Central shooting playground with reactive targets.
-    const props: Array<[string, [number, number, number], number, number, { kind: ReactiveKind; hp: number }]> = [
-      [`${prototype}crate-color.glb`, [1.8, 0.55, -4.6], 0.2, 1.08, { kind: 'crate', hp: 70 }],
-      [`${prototype}crate.glb`, [3.2, 0.55, -5.4], -0.35, 1.05, { kind: 'crate', hp: 70 }],
-      [`${prototype}crate.glb`, [-2.9, 0.55, 4.8], 0.15, 1.05, { kind: 'crate', hp: 70 }],
-      [`${industrial}detail-tank.glb`, [-1.7, 0.7, -7.2], 0.1, 1.1, { kind: 'barrel', hp: 120 }],
-      [`${industrial}detail-tank.glb`, [-3.6, 0.7, -8.4], -0.2, 1.1, { kind: 'barrel', hp: 120 }],
-      [`${industrial}detail-tank.glb`, [4.2, 0.7, 6.8], 0.25, 1.1, { kind: 'barrel', hp: 120 }],
-      [`${prototype}target-b-square.glb`, [0, 1.25, -10], 0, 1, { kind: 'target', hp: 40 }],
-      [`${prototype}target-a-round.glb`, [2.5, 1.35, -11], 0, 1, { kind: 'target', hp: 40 }],
-      [`${prototype}target-b-round.glb`, [-2.2, 1.35, 9.2], Math.PI, 1, { kind: 'target', hp: 40 }],
-    ]
-    for (const [url, pos, rotY, scale, rx] of props) {
-      await tryPlace(url, pos, rotY, scale, rx)
-    }
-
-    if (!loadedAny) {
-      this.three.remove(root)
+    const builder = this.startMap(physics, mod.name, mod.scene)
+    await mod.build(builder)
+    if (!builder.didLoadAny()) {
+      this.clearMap(physics)
       return false
     }
     return true
+  }
+
+  /**
+   * Legacy single-map entry point — kept so the existing main.ts call site
+   * keeps working until it's switched to `loadMapById`.
+   */
+  async addKenneyShootRange(physics: PhysicsSystem): Promise<boolean> {
+    return this.loadMapById('shootRange', physics)
   }
 
   applyBulletHit(colliderHandle: number, damage: number): BulletReaction {
@@ -446,7 +460,43 @@ export class Scene {
   }
 }
 
-type ReactiveKind = 'crate' | 'barrel' | 'target'
+export type ReactiveKind = 'crate' | 'barrel' | 'target'
+
+/**
+ * Authoring API handed to each map module's `build(builder)`. Wraps just enough
+ * of `Scene` so map files don't need to know about colliders, prop caching, or
+ * footprint queries — they only call `place(...)` and (optionally) `footprint`
+ * / `height` for layout math.
+ */
+export interface MapBuilder {
+  /** Map root group; map modules can `add` extra meshes here for custom geometry. */
+  root: Group
+  physics: PhysicsSystem
+  /**
+   * Place a Kenney GLB at world coords, with optional Y rotation, uniform
+   * scale, reactive (destructible) hookup, and a desired height in meters
+   * (height overrides scale proportionally so every "house" reads the same
+   * size regardless of source units).
+   */
+  place: (
+    url: string,
+    pos: [number, number, number],
+    rotY?: number,
+    scale?: number,
+    reactive?: { kind: ReactiveKind; hp: number },
+    desiredHeight?: number,
+  ) => Promise<void>
+  /**
+   * Drop a pre-authored monolithic GLB into the map. Per-mesh trimesh colliders
+   * are built automatically. Use for Blender / SketchUp scenes you exported as
+   * one file (e.g. `ghost_city.glb`). `scale` / `yOffset` adjust if the source
+   * units or pivot are off.
+   */
+  loadGlb: (url: string, opts?: { scale?: number; yOffset?: number }) => Promise<void>
+  footprint: (url: string) => Promise<{ x: number; z: number }>
+  height: (url: string) => Promise<number>
+  didLoadAny: () => boolean
+}
 
 interface ReactiveTarget {
   object: Object3D
