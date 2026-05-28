@@ -95,6 +95,11 @@ async function main() {
     const manifest = await res.json()
     await character.load(manifest)
     console.log('[character] Mixamo manifest loaded')
+    // Sync the climb FSM duration to the actual ledge_climb_up clip length so
+    // the teleport-to-top happens exactly when the pull-up animation finishes
+    // — otherwise short fixed timeouts cut the clip off mid-pose.
+    const climbClip = character.animator.getClip('ledge_climb_up')
+    if (climbClip) player.setClimbDuration(climbClip.duration)
   } catch {
     console.log(
       '[character] using placeholder humanoid — drop ybot.glb + animation GLBs into public/assets/character/ and add manifest.json',
@@ -322,10 +327,26 @@ async function main() {
 
     // footsteps SFX removed — will be provided later by user.
 
-    logic.update(dt)
+    // Skip the weapon FSM entirely while on a ledge — the hands are busy.
+    // This also prevents the rifle from being fired/reloaded mid-hang, which
+    // would clash with the ledge_idle clip's arm pose.
+    if (player.mode !== 'hanging' && player.mode !== 'climbing') logic.update(dt)
     scene.update(dt)
-    character.update(player.position, player.velocity, player.grounded, cam.yaw, dt)
-    character.applySpineAim(cam.pitch)
+    // Trigger the climb pull-up overlay the frame the climb starts. It's a
+    // one-shot full-body clip; while it plays, locomotion fades to 0 and the
+    // overlay drives the skeleton. When it finishes, the locomotion blend
+    // restores naturally (player.mode is back to 'normal' by then).
+    if (player.climbJustStarted && character.animator.hasClip('ledge_climb_up')) {
+      character.animator.playOverlay('ledge_climb_up', false)
+    }
+    const ledgeInfo =
+      player.mode === 'hanging' || player.mode === 'climbing'
+        ? { mode: player.mode, yaw: player.ledgeYaw, shimmy: player.ledgeShimmyDir }
+        : undefined
+    character.update(player.position, player.velocity, player.grounded, cam.yaw, dt, ledgeInfo)
+    // Skip the additive spine aim while on a ledge — the hang/climb pose owns
+    // the upper body and we don't want camera pitch warping the chest.
+    if (!ledgeInfo) character.applySpineAim(cam.pitch)
     fpsMesh.update(dt)
     muzzleFx.update(dt)
     smokeFx.update(dt)

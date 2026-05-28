@@ -20,6 +20,9 @@ export type LocomotionState =
   | 'jump'
   | 'fall'
   | 'land'
+  | 'ledge'
+  | 'ledgeShimmyL'
+  | 'ledgeShimmyR'
 
 /** Seconds for a full weight change (1↔0). */
 const BLEND_TIME = 0.18

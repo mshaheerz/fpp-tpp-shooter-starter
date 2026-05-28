@@ -23,6 +23,10 @@
     "pistol_jump": "./assets/character/animations/pistol_jump.glb",
     "pistol_crouch_idle": "./assets/character/animations/pistol_crouch_idle.glb",
     "knife_idle": "./assets/character/animations/knife_idle.glb",
-    "knife_stab": "./assets/character/animations/knife_stab.glb"
+    "knife_stab": "./assets/character/animations/knife_stab.glb",
+    "ledge_idle": "./assets/character/animations/ledge_idle.glb",
+    "ledge_shimmy_left": "./assets/character/animations/ledge_shimmy_left.glb",
+    "ledge_shimmy_right": "./assets/character/animations/ledge_shimmy_right.glb",
+    "ledge_climb_up": "./assets/character/animations/ledge_climb_up.glb"
   }
 }

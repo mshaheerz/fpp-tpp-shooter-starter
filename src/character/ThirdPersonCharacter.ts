@@ -34,8 +34,11 @@ const _q = new Quaternion()
 const _q2 = new Quaternion()
 const _forward = new Vector3()
 
-const RUN_SPEED_THRESHOLD = 5.5
-const MOVE_SPEED_THRESHOLD = 0.5
+// Sit between WALK_SPEED (1.5) and RUN_SPEED (5.5): anything above ~3 m/s
+// counts as a jog/run for animation purposes. Below MOVE_SPEED_THRESHOLD the
+// character returns to idle.
+const RUN_SPEED_THRESHOLD = 3.0
+const MOVE_SPEED_THRESHOLD = 0.3
 const YAW_LERP_RATE = 8
 
 /**
@@ -206,6 +209,16 @@ export class ThirdPersonCharacter {
           ? 'jump_air'
           : null
     if (airClip) this.animator.bindAirAdditive(airClip)
+    // Ledge bindings are shared across weapon sets — when hanging, the rifle
+    // hold is irrelevant; both hands are on the ledge. Fall back to the hang
+    // clip if a shimmy clip is missing.
+    const ledgeBindings = has('ledge_idle')
+      ? {
+          ledge: 'ledge_idle' as const,
+          ledgeShimmyL: (has('ledge_shimmy_left') ? 'ledge_shimmy_left' : 'ledge_idle') as string,
+          ledgeShimmyR: (has('ledge_shimmy_right') ? 'ledge_shimmy_right' : 'ledge_idle') as string,
+        }
+      : {}
     if (set === 'knife' && has('knife_idle')) {
       // Knife pack only ships an idle + a stab. Everything else falls back to
       // the rifle locomotion clips — the character keeps moving naturally,
@@ -221,6 +234,7 @@ export class ThirdPersonCharacter {
         jump: 'jump',
         fall: has('falling_to_landing') ? 'falling_to_landing' : 'jump',
         land: 'jump',
+        ...ledgeBindings,
       })
       return
     }
@@ -236,6 +250,7 @@ export class ThirdPersonCharacter {
         jump: has('pistol_jump') ? 'pistol_jump' : 'jump',
         fall: has('falling_to_landing') ? 'falling_to_landing' : 'jump',
         land: has('pistol_jump') ? 'pistol_jump' : 'jump',
+        ...ledgeBindings,
       })
       return
     }
@@ -251,10 +266,54 @@ export class ThirdPersonCharacter {
       jump: 'jump',
       fall: has('falling_to_landing') ? 'falling_to_landing' : 'jump',
       land: 'jump',
+      ...ledgeBindings,
     })
   }
 
-  update(playerPos: Vector3, velocity: Vector3, grounded: boolean, cameraYaw: number, dt: number) {
+  update(
+    playerPos: Vector3,
+    velocity: Vector3,
+    grounded: boolean,
+    cameraYaw: number,
+    dt: number,
+    ledge?: { mode: 'hanging' | 'climbing'; yaw: number; shimmy: -1 | 0 | 1 },
+  ) {
+    // LEDGE OVERRIDE: when hanging or climbing, the standard yaw-from-velocity
+    // and locomotion-from-velocity logic doesn't apply — we want the character
+    // to face the wall and play a dedicated state. We still pin the mesh to
+    // the capsule transform so the rest of the camera/anchor code keeps working.
+    if (ledge) {
+      const CAPSULE_BOTTOM = 0.9
+      this.object.position.set(
+        playerPos.x,
+        playerPos.y - CAPSULE_BOTTOM + this.feetOffset,
+        playerPos.z,
+      )
+      // Slerp yaw toward the ledge facing instead of snapping — the snap
+      // looks bad if the player grabbed at an angle. A higher rate than the
+      // normal locomotion lerp so it locks in within a few frames.
+      const LEDGE_YAW_RATE = 18
+      const dyaw = wrapAngle(ledge.yaw - this.yaw)
+      this.yaw += dyaw * Math.min(1, LEDGE_YAW_RATE * dt)
+      this.object.rotation.y = this.yaw
+
+      // Pick the locomotion state. While climbing the playOverlay covers the
+      // body fully, but we still keep the ledge state underneath so when the
+      // overlay finishes we fade back into the hang/standing pose cleanly.
+      let next: LocomotionState = 'ledge'
+      if (ledge.mode === 'hanging') {
+        if (ledge.shimmy < 0) next = 'ledgeShimmyL'
+        else if (ledge.shimmy > 0) next = 'ledgeShimmyR'
+      }
+      this.locomotion = next
+      this.animator.setLocomotion(next)
+      // Air-additive jump leg-tuck makes no sense on a ledge — kill it.
+      this.animator.setAir(false)
+      this.animator.update(dt)
+      return
+    }
+
+    // (rest of the normal-mode update follows)
     // Place the character so its feet sit at the capsule bottom.
     //   capsule bottom (world Y) = playerPos.y - 0.9
     //   mesh feet (world Y)      = object.y + bbox.min.y

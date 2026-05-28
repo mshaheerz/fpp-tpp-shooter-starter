@@ -10,21 +10,63 @@ const EYE_HEIGHT = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS * 0.55 // ~0.75m above c
 const GROUND_CHECK_DIST = 0.08
 const GROUND_NORMAL_Y_MIN = 0.6
 
-const WALK_SPEED = 5.0
-const RUN_SPEED = 7.5
-const GROUND_ACCEL = 80
-const AIR_ACCEL = 30
-const FRICTION = 8.0
-const JUMP_VELOCITY = 5.5
-// Improved jump feel
+// Real-world tuning. 1 unit = 1 m, gravity = -9.81 m/s² (PhysicsSystem).
+//
+// Reference numbers used:
+//   - Casual walk:   ~1.4 m/s (5 km/h)
+//   - Brisk walk:    ~2.0 m/s
+//   - Jog:           ~3.0 m/s
+//   - Sprint:        ~5.5 m/s (recreational; Usain Bolt peaks ~12)
+//   - Standing jump: 2.7–3.2 m/s liftoff → 0.37–0.52 m apex (h = v²/2g)
+//   - Terminal vel:  ~53 m/s belly-down
+//
+// Accel/friction are chosen so a stop from full sprint feels like ~1 stride
+// (~0.7 m), not the snappy Quake stop the old constants gave.
+const WALK_SPEED = 1.5
+const RUN_SPEED = 5.5
+const GROUND_ACCEL = 25
+const AIR_ACCEL = 8
+const FRICTION = 6.0
+const JUMP_VELOCITY = 3.0
+// Game-feel windows (these are not "physics" and aren't supposed to be real):
+//   COYOTE: jump still works briefly after walking off a ledge.
+//   JUMP_BUFFER: jump still works if pressed slightly before landing.
 const COYOTE_TIME = 0.12
 const JUMP_BUFFER_TIME = 0.12
 const VARIABLE_JUMP_CUTOFF = 0.6
-const MAX_FALL_SPEED = -30
+const MAX_FALL_SPEED = -53
 
 const _hVel = new Vector3()
 const _wishDir = new Vector3()
 const _temp = new Vector3()
+
+// Ledge grab tuning (real-world calibrated).
+// Capsule center is ~0.91m above feet; head bone sits ~0.81m above center.
+// Outstretched-arm-overhead reach from a jump apex (~0.46m) gives the player
+// a realistic vertical grab range from "just below shoulder" up to "fully
+// extended overhead while jumping" — roughly center+0.1m .. center+0.85m.
+const LEDGE_CHEST_OFFSET = 0.35      // above capsule center (≈ chest / shoulder)
+const LEDGE_FORWARD_REACH = 0.50     // arm reach (~50 cm)
+const LEDGE_TOP_PROBE_ABOVE = 0.55   // how far above chest we start down-probe
+const LEDGE_TOP_PROBE_DEPTH = 1.0    // how far down the down-probe travels
+const LEDGE_WALL_NORMAL_MAX_Y = 0.35
+// Standing-clearance check: after finding a ledge top, sweep upward from the
+// surface to make sure a full player capsule fits there.
+const LEDGE_STAND_CLEARANCE = (CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS) * 2 + 0.05
+const LEDGE_SHIMMY_OBSTACLE_REACH = CAPSULE_RADIUS + 0.1
+// Reach band: realistic for a 1.8m human with arms extended.
+const LEDGE_TOP_MIN_RELATIVE = 0.0   // at or above capsule center (chest+)
+const LEDGE_TOP_MAX_RELATIVE = 0.85  // ~fingertips overhead at jump apex
+const LEDGE_REGRAB_COOLDOWN = 0.35
+// Visual & snap offsets.
+const LEDGE_HAND_TO_HIPS = 1.05      // hands-to-hips on a hang ~= 1 m for a 1.8m body
+const LEDGE_WALL_GAP = CAPSULE_RADIUS + 0.02
+const LEDGE_CLIMB_DURATION_DEFAULT = 1.6
+// Side-step shimmy: a hanging person can slide arms hand-over-hand at roughly
+// 0.5 m/s, which matches casual climbing footage.
+const LEDGE_SHIMMY_SPEED = 0.5
+
+export type PlayerMode = 'normal' | 'hanging' | 'climbing'
 
 /**
  * Quake-style player movement on a Rapier capsule.
@@ -47,6 +89,32 @@ export class Player {
   /** Visible capsule mesh, swappable / hideable. */
   readonly debugMesh: Mesh
 
+  // Ledge grab / climb state.
+  mode: PlayerMode = 'normal'
+  /** Outward-facing wall normal at the grabbed ledge (horizontal, length 1). */
+  readonly ledgeWallNormal = new Vector3()
+  /** World position of the grabbed ledge edge (used as the hand anchor). */
+  readonly ledgeAnchor = new Vector3()
+  /** Yaw the character should hold while hanging (facing the wall). */
+  ledgeYaw = 0
+  /** Increases each frame while shimmying so callers can pick L/R clip. */
+  ledgeShimmyDir: -1 | 0 | 1 = 0
+  /** True for one frame on the tick the player grabs a ledge. */
+  ledgeJustGrabbed = false
+  /** True for one frame on the tick the player starts the pull-up. */
+  climbJustStarted = false
+  private climbTimer = 0
+  private climbDuration = LEDGE_CLIMB_DURATION_DEFAULT
+  /** World position the capsule will be teleported to when the climb finishes. */
+  private climbTargetPos = new Vector3()
+  private regrabCooldown = 0
+
+  /** Tell the player how long the ledge_climb_up clip is (seconds). Call this
+   *  once after the character finishes loading its manifest. */
+  setClimbDuration(seconds: number) {
+    if (Number.isFinite(seconds) && seconds > 0.1) this.climbDuration = seconds
+  }
+
   constructor(private physics: PhysicsSystem, spawn = new Vector3(0, 5, 0)) {
     this.body = physics.createCapsule({ x: spawn.x, y: spawn.y, z: spawn.z }, CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS)
     this.position.copy(spawn)
@@ -59,6 +127,139 @@ export class Player {
   }
 
   update(dt: number, input: InputManager, camera: CameraRig) {
+    // Reset one-frame flags from the previous tick.
+    this.ledgeJustGrabbed = false
+    this.climbJustStarted = false
+    this.ledgeShimmyDir = 0
+    if (this.regrabCooldown > 0) this.regrabCooldown = Math.max(0, this.regrabCooldown - dt)
+
+    // CLIMBING: time-driven pull-up. Input frozen. Capsule stays put (gravity
+    // disabled, velocity zeroed) until the timer elapses, then we teleport
+    // the body up onto the ledge top and hand control back to normal mode.
+    if (this.mode === 'climbing') {
+      this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+      this.climbTimer += dt
+      const t = this.body.translation()
+      this.position.set(t.x, t.y, t.z)
+      this.velocity.set(0, 0, 0)
+      this.grounded = false
+      this.debugMesh.position.set(t.x, t.y, t.z)
+      // End the climb a hair before the clip finishes — the overlay's tail
+      // fade-out (~0.18s) overlaps with locomotion fading back in, so doing
+      // the teleport slightly early lets the final pose dissolve cleanly into
+      // the standing idle rather than popping after a held end-frame.
+      if (this.climbTimer >= Math.max(0.1, this.climbDuration - 0.08)) {
+        this.body.setTranslation(
+          { x: this.climbTargetPos.x, y: this.climbTargetPos.y, z: this.climbTargetPos.z },
+          true,
+        )
+        this.body.setGravityScale(1, true)
+        this.mode = 'normal'
+        this.regrabCooldown = LEDGE_REGRAB_COOLDOWN
+      }
+      return
+    }
+
+    // HANGING: physics frozen (gravity off, velocity zeroed). A handful of
+    // inputs are honoured: Space to start climbing, S/Ctrl to drop, A/D to
+    // shimmy along the ledge if shimmy clips exist.
+    if (this.mode === 'hanging') {
+      const t = this.body.translation()
+      this.position.set(t.x, t.y, t.z)
+      this.velocity.set(0, 0, 0)
+      this.grounded = false
+
+      // Drop: release the ledge, restore gravity, briefly disable re-grab.
+      if (input.isDown('KeyS') || input.isDown('ControlLeft') || input.isDown('ControlRight')) {
+        this.body.setGravityScale(1, true)
+        this.body.setLinvel({ x: 0, y: -0.5, z: 0 }, true)
+        this.mode = 'normal'
+        this.regrabCooldown = LEDGE_REGRAB_COOLDOWN
+        this.debugMesh.position.set(t.x, t.y, t.z)
+        return
+      }
+      // Climb up.
+      if (input.wasPressed('Space')) {
+        // Target: a step forward from the wall, on top of the ledge.
+        const fwdX = -this.ledgeWallNormal.x
+        const fwdZ = -this.ledgeWallNormal.z
+        const tgtX = this.ledgeAnchor.x + fwdX * (CAPSULE_RADIUS + 0.15)
+        const tgtY = this.ledgeAnchor.y + CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS + 0.02
+        const tgtZ = this.ledgeAnchor.z + fwdZ * (CAPSULE_RADIUS + 0.15)
+        // Refuse to start climbing if the standing target is blocked. A short
+        // ray straight up from the ledge top, plus a forward ray at chest
+        // height from the standing spot, catches both ceilings and walls.
+        const blockedAbove = this.physics.raycast(
+          { x: tgtX, y: this.ledgeAnchor.y + 0.05, z: tgtZ },
+          { x: 0, y: 1, z: 0 },
+          LEDGE_STAND_CLEARANCE,
+          this.body,
+        )
+        if (blockedAbove) {
+          // Stay hanging; don't consume the press silently — let the player
+          // try again next frame (e.g. after shimmying).
+          return
+        }
+        this.climbTargetPos.set(tgtX, tgtY, tgtZ)
+        this.climbTimer = 0
+        this.mode = 'climbing'
+        this.climbJustStarted = true
+        this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+        this.debugMesh.position.set(t.x, t.y, t.z)
+        return
+      }
+      // Shimmy: slide along the ledge tangent. The tangent is the wall normal
+      // rotated 90° around Y. We do a forward-probe each frame to confirm the
+      // wall is still in front; if it's gone, drop off.
+      // Swapped: while hanging the character is facing the wall, so from the
+      // PLAYER's point of view A should still slide them to the right edge of
+      // the screen and D to the left. Tangent direction flips accordingly.
+      let shimmy = 0
+      if (input.isDown('KeyA')) shimmy += 1
+      if (input.isDown('KeyD')) shimmy -= 1
+      if (shimmy !== 0) {
+        const tanX = -this.ledgeWallNormal.z
+        const tanZ = this.ledgeWallNormal.x
+        const sx = tanX * shimmy
+        const sz = tanZ * shimmy
+        // Sideways obstacle check at chest and head height — refuses to slide
+        // the player INTO a wall segment, pillar, or any prop that sticks out
+        // perpendicular to the ledge run.
+        const chestObstacle = this.physics.raycast(
+          { x: t.x, y: t.y + LEDGE_CHEST_OFFSET, z: t.z },
+          { x: sx, y: 0, z: sz },
+          LEDGE_SHIMMY_OBSTACLE_REACH,
+          this.body,
+        )
+        const handObstacle = this.physics.raycast(
+          { x: t.x, y: this.ledgeAnchor.y - 0.05, z: t.z },
+          { x: sx, y: 0, z: sz },
+          LEDGE_SHIMMY_OBSTACLE_REACH,
+          this.body,
+        )
+        if (!chestObstacle && !handObstacle) {
+          const step = shimmy * LEDGE_SHIMMY_SPEED * dt
+          const nx = t.x + tanX * step
+          const nz = t.z + tanZ * step
+          // Re-probe forward to make sure the wall continues at the new
+          // position; if it ends, cancel the step instead of falling off.
+          const probeOrigin = { x: nx, y: t.y + LEDGE_CHEST_OFFSET, z: nz }
+          const probeDir = { x: -this.ledgeWallNormal.x, y: 0, z: -this.ledgeWallNormal.z }
+          const wallHit = this.physics.raycast(probeOrigin, probeDir, LEDGE_FORWARD_REACH + 0.1, this.body)
+          if (wallHit) {
+            this.body.setTranslation({ x: nx, y: t.y, z: nz }, true)
+            this.ledgeShimmyDir = shimmy as -1 | 1
+          }
+        }
+      }
+      this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+      const tt = this.body.translation()
+      this.position.set(tt.x, tt.y, tt.z)
+      this.debugMesh.position.set(tt.x, tt.y, tt.z)
+      return
+    }
+
+    // NORMAL movement.
     // 1) Read current state from the physics body.
     const t = this.body.translation()
     const v = this.body.linvel()
@@ -153,6 +354,117 @@ export class Player {
 
     // Visual mesh follows the capsule.
     this.debugMesh.position.set(t.x, t.y, t.z)
+
+    // 5) Ledge grab detection. Only while airborne (so the player can't grab
+    // a chest-high ledge while already standing on the ground), not while
+    // rising fast (still ascending mid-jump), and not for a brief moment
+    // after releasing a ledge (so dropping off doesn't immediately re-grab).
+    if (
+      !this.grounded &&
+      this.velocity.y <= 1.5 &&
+      this.regrabCooldown <= 0 &&
+      camera
+    ) {
+      this.tryGrabLedge(t)
+    }
+  }
+
+  /**
+   * Two-ray probe for a grabbable ledge. The first ray fires straight forward
+   * from chest height to find a near-vertical wall. If a wall is hit close
+   * enough, the second ray drops down from a point a bit above the chest and
+   * just past the wall — if it hits within the reachable band, the hit point's
+   * Y defines the ledge top.
+   *
+   * Direction of "forward" comes from the player's last move input if any,
+   * else camera yaw — so the player can't accidentally grab a ledge behind
+   * them. We pull forward direction from `_wishDir` (still set above) if it's
+   * non-zero, otherwise we use the body's facing derived from camera yaw via
+   * the wishDir build above (which we set to (0,0,0) when no key is pressed).
+   */
+  private tryGrabLedge(t: { x: number; y: number; z: number }) {
+    // Forward direction for the probe: prefer current wish input, else use
+    // the velocity direction; if both are zero, skip — we only grab ledges
+    // the player is actively running into.
+    let fx = _wishDir.x
+    let fz = _wishDir.z
+    let len = Math.hypot(fx, fz)
+    if (len < 0.01) {
+      fx = this.velocity.x
+      fz = this.velocity.z
+      len = Math.hypot(fx, fz)
+      if (len < 0.5) return
+    }
+    fx /= len
+    fz /= len
+
+    const chestY = t.y + LEDGE_CHEST_OFFSET
+    const wallHit = this.physics.raycast(
+      { x: t.x, y: chestY, z: t.z },
+      { x: fx, y: 0, z: fz },
+      LEDGE_FORWARD_REACH,
+      this.body,
+    )
+    if (!wallHit) return
+    // Wall must be near-vertical (its surface normal mostly horizontal).
+    if (Math.abs(wallHit.normal.y) > LEDGE_WALL_NORMAL_MAX_Y) return
+
+    // Down-probe from above the chest, just past the wall surface, looking for
+    // the top of the ledge.
+    const probeX = wallHit.point.x + fx * 0.05
+    const probeZ = wallHit.point.z + fz * 0.05
+    const probeStartY = chestY + LEDGE_TOP_PROBE_ABOVE
+    const downHit = this.physics.raycast(
+      { x: probeX, y: probeStartY, z: probeZ },
+      { x: 0, y: -1, z: 0 },
+      LEDGE_TOP_PROBE_DEPTH,
+      this.body,
+    )
+    if (!downHit) return
+    // Top must be approximately flat (could relax later for sloped ledges).
+    if (downHit.normal.y < 0.7) return
+
+    const topY = downHit.point.y
+    const relY = topY - t.y
+    if (relY < LEDGE_TOP_MIN_RELATIVE || relY > LEDGE_TOP_MAX_RELATIVE) return
+
+    // Refuse the grab if there's something directly above the ledge top — the
+    // climb pull-up would end inside geometry (an overhang, a low ceiling, an
+    // object placed on the ledge). Cast a short ray UP from just above the
+    // top; any hit within standing-clearance is a blocker.
+    const clearanceHit = this.physics.raycast(
+      { x: probeX, y: topY + 0.05, z: probeZ },
+      { x: 0, y: 1, z: 0 },
+      LEDGE_STAND_CLEARANCE,
+      this.body,
+    )
+    if (clearanceHit) return
+
+    // Lock in the grab. Snap the body so the capsule sits with its hands at
+    // ledge height and its chest pressed against the wall (with a small gap
+    // so it doesn't tunnel).
+    const wnX = wallHit.normal.x
+    const wnZ = wallHit.normal.z
+    const wnLen = Math.hypot(wnX, wnZ) || 1
+    this.ledgeWallNormal.set(wnX / wnLen, 0, wnZ / wnLen)
+    this.ledgeAnchor.set(probeX, topY, probeZ)
+
+    const snapX = wallHit.point.x + this.ledgeWallNormal.x * LEDGE_WALL_GAP
+    const snapZ = wallHit.point.z + this.ledgeWallNormal.z * LEDGE_WALL_GAP
+    const snapY = topY - LEDGE_HAND_TO_HIPS
+    this.body.setTranslation({ x: snapX, y: snapY, z: snapZ }, true)
+    this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+    this.body.setGravityScale(0, true)
+
+    // Face the wall: yaw points along -wallNormal in XZ.
+    this.ledgeYaw = Math.atan2(-this.ledgeWallNormal.x, -this.ledgeWallNormal.z)
+
+    this.mode = 'hanging'
+    this.ledgeJustGrabbed = true
+    this.position.set(snapX, snapY, snapZ)
+    this.velocity.set(0, 0, 0)
+    this.grounded = false
+    this.debugMesh.position.set(snapX, snapY, snapZ)
   }
 
   /** PM_Accelerate-style step: only add up to (wishspeed - dotvel) along wishDir. */
