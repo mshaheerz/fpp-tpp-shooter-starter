@@ -3,12 +3,26 @@ import { Vector3, Mesh, CapsuleGeometry, MeshStandardMaterial } from 'three'
 import type { PhysicsSystem } from './PhysicsSystem'
 import type { InputManager } from './InputManager'
 import type { CameraRig } from './Camera'
+import type { Combatant, Team } from './ai/DamageSystem'
+
+const PLAYER_MAX_HP = 100
 
 const CAPSULE_RADIUS = 0.36
 const CAPSULE_HALF_HEIGHT = 0.55 // total height = 2*half + 2*radius = 1.82m
-const EYE_HEIGHT = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS * 0.55 // ~0.75m above capsule center
+// Eye sits a little below the very top of the capsule. Expressed as a fraction
+// of the capsule's own half-extent so it scales correctly when the player's
+// height is tuned live or while crouching.
+//   full half-extent = halfHeight + radius
+//   eye offset above center = fullHalf * EYE_HEIGHT_FRACTION
+const EYE_HEIGHT_FRACTION = 0.82
 const GROUND_CHECK_DIST = 0.08
 const GROUND_NORMAL_Y_MIN = 0.6
+
+// Crouch: capsule shrinks to ~60% of standing height, movement slows, jump is
+// disabled. Standing back up requires vertical clearance.
+const CROUCH_HALF_HEIGHT_SCALE = 0.45 // crouched halfHeight = standing * this
+const CROUCH_SPEED_SCALE = 0.5
+const CROUCH_TRANSITION_SPEED = 9 // 1/s — how fast the visual/eye height eases
 
 // Real-world tuning. 1 unit = 1 m, gravity = -9.81 m/s² (PhysicsSystem).
 //
@@ -27,7 +41,7 @@ const RUN_SPEED = 5.5
 const GROUND_ACCEL = 25
 const AIR_ACCEL = 8
 const FRICTION = 6.0
-const JUMP_VELOCITY = 3.0
+const JUMP_VELOCITY = 4.2  // increased for better vertical gameplay
 // Game-feel windows (these are not "physics" and aren't supposed to be real):
 //   COYOTE: jump still works briefly after walking off a ledge.
 //   JUMP_BUFFER: jump still works if pressed slightly before landing.
@@ -77,13 +91,45 @@ export type PlayerMode = 'normal' | 'hanging' | 'climbing'
  *   - Air control: same accel formula with no friction → strafe-jumping emerges.
  *   - Grounded test: short raycast straight down + check normal.y above 0.6.
  */
-export class Player {
+export class Player implements Combatant {
   readonly body: RAPIER.RigidBody
+  private readonly collider: RAPIER.Collider
   readonly position = new Vector3()
   readonly velocity = new Vector3()
   grounded = false
   private coyoteTimer = 0
   private jumpBuffer = 0
+
+  // ── Combatant (health / team) ──────────────────────────────────────────────
+  readonly id = 'player'
+  team: Team = 'blue'
+  maxHp = PLAYER_MAX_HP
+  hp = PLAYER_MAX_HP
+  alive = true
+  /** Fired when damaged (HUD flash / damage indicator). */
+  onDamaged?: (amount: number, fromTeam: Team) => void
+  /** Fired the frame the player dies. */
+  onDeath?: () => void
+  /** Rapier collider handle of the capsule — registered with the DamageSystem
+   *  so enemy bullets that hit it route to the player. */
+  get colliderHandle(): number {
+    return this.collider.handle
+  }
+
+  // ── Live-tunable capsule dimensions ────────────────────────────────────────
+  // `standingHalfHeight`/`radius` are the player's configured standing size.
+  // `currentHalfHeight` is what the collider is actually set to right now (it
+  // dips toward the crouch size while crouching). All in metres.
+  private standingHalfHeight = CAPSULE_HALF_HEIGHT
+  private radius = CAPSULE_RADIUS
+  private currentHalfHeight = CAPSULE_HALF_HEIGHT
+  /** Eye offset above capsule center as a fraction of the full half-extent. */
+  eyeHeightFraction = EYE_HEIGHT_FRACTION
+
+  // ── Crouch state ────────────────────────────────────────────────────────────
+  crouching = false
+  /** 0 = fully standing, 1 = fully crouched. Eased for smooth camera/visual. */
+  private crouchT = 0
   /** Yaw-only forward direction the player wants to travel (in world XZ). */
   readonly moveDir = new Vector3()
   /** Visible capsule mesh, swappable / hideable. */
@@ -116,7 +162,13 @@ export class Player {
   }
 
   constructor(private physics: PhysicsSystem, spawn = new Vector3(0, 5, 0)) {
-    this.body = physics.createCapsule({ x: spawn.x, y: spawn.y, z: spawn.z }, CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS)
+    const { body, collider } = physics.createCapsule(
+      { x: spawn.x, y: spawn.y, z: spawn.z },
+      CAPSULE_HALF_HEIGHT,
+      CAPSULE_RADIUS,
+    )
+    this.body = body
+    this.collider = collider
     this.position.copy(spawn)
 
     // Visual placeholder; hidden in FPP at runtime.
@@ -124,6 +176,59 @@ export class Player {
     const mat = new MeshStandardMaterial({ color: 0xcc6622, roughness: 0.7 })
     this.debugMesh = new Mesh(geom, mat)
     this.debugMesh.castShadow = true
+  }
+
+  // ── Capsule sizing API (used by the debugger + crouch) ──────────────────────
+
+  /** Full standing height of the player in metres (top of head to feet). */
+  get standingHeight(): number {
+    return (this.standingHalfHeight + this.radius) * 2
+  }
+
+  /** Current full height in metres (shrinks while crouching). */
+  get currentHeight(): number {
+    return (this.currentHalfHeight + this.radius) * 2
+  }
+
+  get capsuleRadius(): number {
+    return this.radius
+  }
+
+  /**
+   * Set the standing (uncrouched) height in metres. The radius is preserved, so
+   * `halfHeight = height/2 - radius` and is clamped so the capsule never inverts.
+   * Re-applies the collider size immediately if not mid-crouch.
+   */
+  setStandingHeight(height: number) {
+    const half = Math.max(0.05, height / 2 - this.radius)
+    this.standingHalfHeight = half
+    // If we're standing (not mid-crouch), the live half-height should follow
+    // the new standing value immediately.
+    if (this.crouchT < 0.001) this.currentHalfHeight = half
+    this.applyCapsuleSize()
+  }
+
+  /** Set the capsule radius in metres (clamped to a sane minimum). */
+  setRadius(radius: number) {
+    this.radius = Math.max(0.1, radius)
+    try {
+      this.collider.setRadius(this.radius)
+    } catch {}
+    this.applyCapsuleSize()
+  }
+
+  /**
+   * Push `currentHalfHeight` to the collider and rebuild the visual capsule so
+   * the debug mesh matches the physics shape. Called whenever dimensions change.
+   */
+  private applyCapsuleSize() {
+    try {
+      this.collider.setHalfHeight(this.currentHalfHeight)
+    } catch {}
+    // Rebuild the placeholder geometry to match (cheap; only on size change).
+    const geom = new CapsuleGeometry(this.radius, this.currentHalfHeight * 2, 6, 12)
+    this.debugMesh.geometry.dispose()
+    this.debugMesh.geometry = geom
   }
 
   update(dt: number, input: InputManager, camera: CameraRig) {
@@ -266,8 +371,12 @@ export class Player {
     this.position.set(t.x, t.y, t.z)
     this.velocity.set(v.x, v.y, v.z)
 
+    // Crouch: hold Ctrl/C to lower the capsule. Standing back up requires
+    // headroom — if something is directly above, stay crouched until it clears.
+    this.updateCrouch(input, t, dt)
+
     // 2) Ground check via a short downward raycast from capsule bottom.
-    const footY = t.y - CAPSULE_HALF_HEIGHT - CAPSULE_RADIUS * 0.95
+    const footY = t.y - this.currentHalfHeight - this.radius * 0.95
     const groundHit = this.physics.raycast(
       { x: t.x, y: footY, z: t.z },
       { x: 0, y: -1, z: 0 },
@@ -318,8 +427,10 @@ export class Player {
     const sprinting = input.isDown('ShiftLeft') || input.isDown('ShiftRight')
     // ADS suppresses sprint and slows base speed (CS-style).
     const aiming = (camera as { ads?: boolean }).ads === true
-    let wishSpeed = (sprinting && !aiming ? RUN_SPEED : WALK_SPEED) * (wLen > 0 ? 1 : 0)
+    // Crouching disables sprint too — you can't run while ducked.
+    let wishSpeed = (sprinting && !aiming && !this.crouching ? RUN_SPEED : WALK_SPEED) * (wLen > 0 ? 1 : 0)
     if (aiming) wishSpeed *= 0.6
+    if (this.crouching) wishSpeed *= CROUCH_SPEED_SCALE
 
     _hVel.set(this.velocity.x, 0, this.velocity.z)
 
@@ -332,8 +443,9 @@ export class Player {
         _hVel.multiplyScalar(newSpeed / speed)
       }
       this.accelerate(_hVel, _wishDir, wishSpeed, GROUND_ACCEL, dt)
-      // Jump (consume buffer): allow within coyote window after leaving ground
-      if (this.jumpBuffer > 0 && (this.grounded || this.coyoteTimer <= COYOTE_TIME)) {
+      // Jump (consume buffer): allow within coyote window after leaving ground.
+      // Crouching suppresses the jump (you must stand first).
+      if (!this.crouching && this.jumpBuffer > 0 && (this.grounded || this.coyoteTimer <= COYOTE_TIME)) {
         this.velocity.y = JUMP_VELOCITY
         this.grounded = false
         this.jumpBuffer = 0
@@ -467,6 +579,51 @@ export class Player {
     this.debugMesh.position.set(snapX, snapY, snapZ)
   }
 
+  /**
+   * Crouch handling. Holding Ctrl (or C) ducks; releasing stands back up only
+   * if there's vertical clearance for the full standing capsule. The collider
+   * half-height eases between standing and crouched sizes via `crouchT`, and we
+   * shift the body down as it shrinks so the feet stay planted (the capsule
+   * resizes about its center, so without this the player would float).
+   */
+  private updateCrouch(input: InputManager, t: { x: number; y: number; z: number }, dt: number) {
+    const wantsCrouch = input.isDown('ControlLeft') || input.isDown('ControlRight') || input.isDown('KeyC')
+
+    if (wantsCrouch) {
+      this.crouching = true
+    } else if (this.crouching) {
+      // Only stand if the head won't punch through geometry above.
+      const standHalf = this.standingHalfHeight + this.radius
+      const headroom = this.physics.raycast(
+        { x: t.x, y: t.y + this.currentHalfHeight + this.radius * 0.5, z: t.z },
+        { x: 0, y: 1, z: 0 },
+        (standHalf - this.currentHalfHeight - this.radius * 0.5) + 0.05,
+        this.body,
+      )
+      if (!headroom) this.crouching = false
+    }
+
+    const target = this.crouching ? 1 : 0
+    const prevT = this.crouchT
+    this.crouchT += (target - this.crouchT) * Math.min(1, CROUCH_TRANSITION_SPEED * dt)
+    if (Math.abs(this.crouchT - target) < 0.001) this.crouchT = target
+
+    const crouchedHalf = this.standingHalfHeight * CROUCH_HALF_HEIGHT_SCALE
+    const newHalf = this.standingHalfHeight + (crouchedHalf - this.standingHalfHeight) * this.crouchT
+
+    if (Math.abs(newHalf - this.currentHalfHeight) > 1e-4 || prevT !== this.crouchT) {
+      // Keep the feet on the ground: as the capsule's half-height shrinks by Δ,
+      // its center must drop by Δ so the bottom cap stays at the same Y.
+      const delta = this.currentHalfHeight - newHalf
+      this.currentHalfHeight = newHalf
+      this.applyCapsuleSize()
+      if (delta !== 0) {
+        const nt = this.body.translation()
+        this.body.setTranslation({ x: nt.x, y: nt.y - delta, z: nt.z }, true)
+      }
+    }
+  }
+
   /** PM_Accelerate-style step: only add up to (wishspeed - dotvel) along wishDir. */
   private accelerate(vel: Vector3, wishDir: Vector3, wishSpeed: number, accel: number, dt: number) {
     if (wishSpeed <= 0) return
@@ -479,8 +636,101 @@ export class Player {
     vel.z += wishDir.z * accelSpeed
   }
 
+  /**
+   * World eye position, derived from the *current* capsule (so it lowers while
+   * crouching). Used as the FPP camera fallback when there's no head bone.
+   */
   get eyePosition(): Vector3 {
-    return _temp.copy(this.position).setY(this.position.y + EYE_HEIGHT - (CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS) * 0.45)
+    const fullHalf = this.currentHalfHeight + this.radius
+    return _temp.copy(this.position).setY(this.position.y + fullHalf * this.eyeHeightFraction)
+  }
+
+  /** Eye offset above the capsule center, in metres (tracks crouch). */
+  get eyeOffsetY(): number {
+    return (this.currentHalfHeight + this.radius) * this.eyeHeightFraction
+  }
+
+  /** Distance from capsule center down to the feet, in metres (tracks crouch).
+   *  Used by the TPP character to keep its feet planted while ducking. */
+  get capsuleBottomOffset(): number {
+    return this.currentHalfHeight + this.radius
+  }
+
+  // ── Debug / external control helpers ────────────────────────────────────────
+
+  /** Snapshot of internal game-feel timers, for the debugger readout. */
+  get debugState() {
+    return {
+      grounded: this.grounded,
+      mode: this.mode,
+      crouching: this.crouching,
+      coyoteTimer: this.coyoteTimer,
+      jumpBuffer: this.jumpBuffer,
+      standingHeight: this.standingHeight,
+      currentHeight: this.currentHeight,
+      radius: this.radius,
+      eyeHeightFraction: this.eyeHeightFraction,
+    }
+  }
+
+  /** Hard teleport: set body position and zero velocity. */
+  teleport(x: number, y: number, z: number) {
+    this.body.setTranslation({ x, y, z }, true)
+    this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+    this.position.set(x, y, z)
+    this.velocity.set(0, 0, 0)
+  }
+
+  /**
+   * Set the body's linear velocity. Also writes `this.velocity` so the value
+   * survives into the next `update()` (which reads body.linvel at the top).
+   */
+  setVelocity(x: number, y: number, z: number) {
+    this.velocity.set(x, y, z)
+    this.body.setLinvel({ x, y, z }, true)
+  }
+
+  /** Launch straight up at the given liftoff speed (m/s). */
+  launch(vy: number) {
+    const v = this.body.linvel()
+    this.velocity.set(v.x, vy, v.z)
+    this.body.setLinvel({ x: v.x, y: vy, z: v.z }, true)
+    this.grounded = false
+  }
+
+  // ── Combatant implementation ────────────────────────────────────────────────
+
+  getPosition(out: Vector3): Vector3 {
+    return out.copy(this.position)
+  }
+
+  takeDamage(amount: number, fromTeam: Team): boolean {
+    if (!this.alive || amount <= 0) return false
+    this.hp = Math.max(0, this.hp - amount)
+    this.onDamaged?.(amount, fromTeam)
+    if (this.hp <= 0) {
+      this.alive = false
+      this.onDeath?.()
+      return true
+    }
+    return false
+  }
+
+  /** Reset health + teleport to a spawn point for a new round. */
+  respawn(pos: Vector3) {
+    this.hp = this.maxHp
+    this.alive = true
+    this.crouching = false
+    this.crouchT = 0
+    this.mode = 'normal'
+    // Make sure velocity is zero
+    try {
+      this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+      this.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+    } catch {}
+    this.body.setGravityScale(1, true)
+    this.teleport(pos.x, pos.y, pos.z)
+    console.log(`[Player] Respawned at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) - HP: ${this.hp}/${this.maxHp}`)
   }
 }
 

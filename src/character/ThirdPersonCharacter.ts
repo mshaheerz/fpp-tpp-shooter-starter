@@ -277,6 +277,7 @@ export class ThirdPersonCharacter {
     cameraYaw: number,
     dt: number,
     ledge?: { mode: 'hanging' | 'climbing'; yaw: number; shimmy: -1 | 0 | 1 },
+    capsuleBottom = 0.9,
   ) {
     // LEDGE OVERRIDE: when hanging or climbing, the standard yaw-from-velocity
     // and locomotion-from-velocity logic doesn't apply — we want the character
@@ -320,10 +321,11 @@ export class ThirdPersonCharacter {
     //                            = object.y - feetOffset            (since feetOffset = -bbox.min.y)
     //   solve: object.y = playerPos.y - 0.9 + feetOffset
     // For the placeholder humanoid (feet at local y=0) feetOffset is 0 — same formula.
-    const CAPSULE_BOTTOM = 0.9
+    // `capsuleBottom` is the live center→feet distance; it shrinks while
+    // crouching so the mesh feet stay planted as the capsule center lowers.
     this.object.position.set(
       playerPos.x,
-      playerPos.y - CAPSULE_BOTTOM + this.feetOffset,
+      playerPos.y - capsuleBottom + this.feetOffset,
       playerPos.z,
     )
 

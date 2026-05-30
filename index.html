@@ -55,6 +55,35 @@
       .map-card .map-desc {
         font-size: 12.5px; color: #b8bdc6; line-height: 1.5;
       }
+      #tdm-section {
+        margin-top: 26px; padding: 20px; border-radius: 10px;
+        background: rgba(150,40,40,0.10);
+        border: 1px solid rgba(220,90,90,0.28);
+      }
+      #tdm-section .tdm-title {
+        margin: 0 0 4px; font-size: 17px; font-weight: 600; color: #ffd9d0;
+        letter-spacing: 0.04em; text-transform: uppercase;
+      }
+      #tdm-section .tdm-sub { font-size: 12.5px; color: #c8b3b0; margin-bottom: 16px; }
+      #tdm-section .tdm-row {
+        display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap;
+      }
+      #tdm-section .tdm-field { display: flex; flex-direction: column; gap: 5px; }
+      #tdm-section .tdm-field label {
+        font-size: 11px; color: #b8bdc6; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      #tdm-section select, #tdm-section input {
+        background: #161a20; color: #eef2f6; border: 1px solid #3a4150;
+        border-radius: 6px; padding: 7px 9px; font: 13px/1 ui-monospace, monospace;
+      }
+      #tdm-section .tdm-num { width: 70px; }
+      #tdm-section .tdm-start {
+        margin-left: auto; background: #c0413f; color: #fff; border: none;
+        border-radius: 7px; padding: 10px 20px; font-size: 14px; font-weight: 600;
+        cursor: pointer; transition: background 120ms ease, transform 120ms ease;
+      }
+      #tdm-section .tdm-start:hover { background: #d44d4a; transform: translateY(-1px); }
+
       .map-menu-footer {
         margin-top: 20px; color: #8a8f96; font-size: 12px; text-align: right;
       }
@@ -76,10 +105,11 @@
       <div class="map-menu-inner">
         <h1>Select Map</h1>
         <div id="map-menu-grid"></div>
+        <div id="tdm-section"></div>
         <div class="map-menu-footer">Press <kbd>M</kbd> in game to reopen this menu</div>
       </div>
     </div>
-    <div id="lock-hint">Click to play — WASD / Space / Shift, R reload, 1/2/3 swap, V toggle FPP/TPP, M change map</div>
+    <div id="lock-hint">Click to play — WASD / Space / Shift, Ctrl crouch, R reload, 1/2/3 swap, V toggle FPP/TPP, M change map, F7 debugger</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

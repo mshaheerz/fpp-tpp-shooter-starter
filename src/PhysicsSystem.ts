@@ -37,8 +37,16 @@ export class PhysicsSystem {
   /**
    * Dynamic capsule for the player. Rotations are locked so the capsule never
    * tips over — yaw is read from the camera, not from physics.
+   *
+   * Returns both the body and its collider so callers can resize the capsule at
+   * runtime (crouch, live height tuning) via `collider.setHalfHeight()` /
+   * `collider.setRadius()`.
    */
-  createCapsule(pos: { x: number; y: number; z: number }, halfHeight: number, radius: number): RAPIER.RigidBody {
+  createCapsule(
+    pos: { x: number; y: number; z: number },
+    halfHeight: number,
+    radius: number,
+  ): { body: RAPIER.RigidBody; collider: RAPIER.Collider } {
     const desc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(pos.x, pos.y, pos.z)
       .lockRotations()
@@ -48,8 +56,8 @@ export class PhysicsSystem {
     const colliderDesc = RAPIER.ColliderDesc.capsule(halfHeight, radius)
       .setFriction(0)
       .setRestitution(0)
-    this.world.createCollider(colliderDesc, body)
-    return body
+    const collider = this.world.createCollider(colliderDesc, body)
+    return { body, collider }
   }
 
   /**
@@ -136,6 +144,29 @@ export class PhysicsSystem {
       excludeBody,
     )
     return hit ? hit.time_of_impact : maxToi
+  }
+
+  /**
+   * True if any collider overlaps an axis-aligned box centered at `center` with
+   * the given half-extents. Used by the nav grid to mark cells blocked by static
+   * map geometry. `exclude` skips a body (e.g. the player capsule).
+   */
+  overlapBox(
+    center: { x: number; y: number; z: number },
+    half: { x: number; y: number; z: number },
+    exclude?: RAPIER.RigidBody,
+  ): boolean {
+    const shape = new RAPIER.Cuboid(half.x, half.y, half.z)
+    const hit = this.world.intersectionWithShape(
+      center,
+      { x: 0, y: 0, z: 0, w: 1 },
+      shape,
+      undefined,
+      undefined,
+      undefined,
+      exclude,
+    )
+    return hit !== null
   }
 
   step(_dt: number) {

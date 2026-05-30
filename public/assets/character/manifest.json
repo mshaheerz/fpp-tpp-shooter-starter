@@ -27,6 +27,9 @@
     "ledge_idle": "./assets/character/animations/ledge_idle.glb",
     "ledge_shimmy_left": "./assets/character/animations/ledge_shimmy_left.glb",
     "ledge_shimmy_right": "./assets/character/animations/ledge_shimmy_right.glb",
-    "ledge_climb_up": "./assets/character/animations/ledge_climb_up.glb"
+    "ledge_climb_up": "./assets/character/animations/ledge_climb_up.glb",
+    "death": "./assets/character/animations/death.glb",
+    "dying": "./assets/character/animations/dying.glb",
+    "death_stand": "./assets/character/animations/death_stand.glb"
   }
 }

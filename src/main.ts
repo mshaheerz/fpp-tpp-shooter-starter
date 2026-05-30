@@ -21,6 +21,12 @@ import PlayerDebugger from './debug/PlayerDebugger'
 import { SpriteFxSystem } from './particle/SpriteFxSystem'
 import AudioManager from './audio/AudioManager'
 import { MapMenu } from './MapMenu'
+import { DamageSystem } from './ai/DamageSystem'
+import { CharacterPool } from './ai/CharacterPool'
+import { Enemy } from './ai/Enemy'
+import { NavGrid } from './ai/NavGrid'
+import { TdmMatch, type TdmConfig } from './modes/TdmMatch'
+import type { AnimationManifest } from './character/ThirdPersonCharacter'
 
 const FIXED_DT = 1 / 60
 const _eyeTmp = new Vector3()
@@ -77,22 +83,33 @@ async function main() {
   // Hide the loading overlay so the menu is visible, then wait for a pick.
   hideLoading()
   const firstPick = await mapMenu.show()
-  await loadMap(firstPick)
+  await loadMap(firstPick.mapId)
+  // Defer starting a TDM match until the player + systems exist (below).
+  const pendingMatch = firstPick.mode === 'tdm' ? firstPick.tdm ?? null : null
 
   const player = new Player(physics)
   scene.add(player.debugMesh)
   player.debugMesh.visible = false
+
+  // Central health/hit router. The player is a Combatant; its capsule collider
+  // is registered so enemy bullets that hit it route here. Enemies register
+  // themselves when a TDM match spawns them.
+  const damage = new DamageSystem()
+  damage.register(player)
+  damage.registerCollider(player.colliderHandle, player)
 
   // Player debugger UI
   new PlayerDebugger(player)
 
   const character = new ThirdPersonCharacter()
   scene.add(character.object)
+  let characterManifest: unknown = null
   try {
     setLoading('Loading character...')
     const res = await fetch('./assets/character/manifest.json')
     if (!res.ok) throw new Error('no manifest')
     const manifest = await res.json()
+    characterManifest = manifest
     await character.load(manifest)
     console.log('[character] Mixamo manifest loaded')
     // Sync the climb FSM duration to the actual ledge_climb_up clip length so
@@ -105,6 +122,55 @@ async function main() {
       '[character] using placeholder humanoid — drop ybot.glb + animation GLBs into public/assets/character/ and add manifest.json',
     )
   }
+
+  // Enemy character pool — loads the Mixamo assets once and clones per bot.
+  // Initialized with the same manifest as the player (falls back to placeholder
+  // rigs when assets are absent). Used by Team Deathmatch.
+  const enemyPool = new CharacterPool()
+  if (characterManifest) await enemyPool.init(characterManifest as AnimationManifest)
+  else await enemyPool.init({ base: '', animations: {} })
+
+  // Navigation grid, rebuilt whenever a map loads (samples the current static
+  // colliders). `?nav` overlays the blocked cells for debugging.
+  const params = new URLSearchParams(location.search)
+  const showNav = params.has('nav')
+  let navDebug: import('three').Object3D | null = null
+  function buildNav(): NavGrid {
+    if (navDebug) {
+      scene.remove(navDebug)
+      navDebug = null
+    }
+    const grid = new NavGrid(physics, { halfExtent: 60, cell: 0.9 })
+    if (showNav) {
+      navDebug = grid.buildDebugObject()
+      scene.add(navDebug)
+    }
+    return grid
+  }
+  let nav: NavGrid = buildNav()
+
+  // Dev free-roam bots: `?bot=N` drops N bots that just patrol the nav grid
+  // (no match logic) — handy for testing pathfinding/hit detection in isolation.
+  const enemies: Enemy[] = []
+  const botParam = params.get('bot')
+  if (botParam) {
+    const n = Math.max(1, Math.min(8, Number(botParam) || 1))
+    for (let i = 0; i < n; i++) {
+      const spawn = nav.randomWalkable() ?? new Vector3((i - (n - 1) / 2) * 1.5, 3, -6)
+      spawn.y = 3
+      const e = new Enemy(physics, enemyPool, spawn)
+      scene.add(e.rig.object)
+      damage.register(e)
+      damage.registerCollider(e.colliderHandle, e)
+      e.onDeath = (dead) => damage.unregisterCollider(dead.colliderHandle)
+      enemies.push(e)
+    }
+    console.log(`[tdm] spawned ${enemies.length} free-roam test bot(s)`)
+  }
+
+  // Active Team Deathmatch match, if any. Built on demand (dev `?tdm=N`, or the
+  // menu in TDM mode). When set, it owns enemy lifecycle + round flow.
+  let match: TdmMatch | null = null
 
   // FPSMesh kept around solely for its recoil spring (camera kick); its
   // placeholder geometry is hidden — we use the Mixamo character's real arms
@@ -183,6 +249,32 @@ async function main() {
     (hit, stats, shotDir) => {
       _hitPoint.set(hit.point.x, hit.point.y, hit.point.z)
       _hitNormal.set(hit.normal.x, hit.normal.y, hit.normal.z)
+
+      // Combatant hit takes priority over prop reactions. If the ray struck an
+      // enemy capsule, deal damage through the DamageSystem and stop — the body
+      // "absorbs" the shot (we still draw a blood-ish impact puff below).
+      if (damage.applyHitByCollider(hit.colliderHandle, stats.damage, player.team)) {
+        if (smokeSprites) {
+          smokeSprites.spawn(_hitPoint, {
+            count: 3,
+            life: [0.18, 0.4],
+            speed: [0.2, 0.7],
+            size: [0.12, 0.2],
+            grow: 1.6,
+            spread: 0.5,
+            dir: _hitNormal,
+            opacity: 0.5,
+            gravity: -0.1,
+            drag: 2.0,
+          })
+        }
+        hud.flashHitMarker()
+        try {
+          audio.play('hitmarker', { volume: 0.5 })
+        } catch {}
+        return
+      }
+
       scene.applyBulletImpulse(hit.colliderHandle, _hitPoint, shotDir, stats.damage)
       const reaction = scene.applyBulletHit(hit.colliderHandle, stats.damage)
 
@@ -270,6 +362,101 @@ async function main() {
   const logic = new WeaponLogicSystem(input, cam, weapons, shooter, fpsMesh, character, player.body, equip)
   const hud = new HUD(renderer.hudCtx, renderer.hudCanvas)
 
+  // Flash the red vignette whenever the player takes damage.
+  player.onDamaged = () => hud.flashDamage()
+
+  // ── Enemy combat helpers (used by Enemy.think via the loop) ──────────────────
+  // Line-of-sight: cast from `from` toward `to`; clear if nothing solid is hit
+  // before (almost) reaching the target. The target is the player capsule, so a
+  // hit at ~target distance means an unobstructed view.
+  const _losDir = new Vector3()
+  function losClear(from: Vector3, to: Vector3): boolean {
+    _losDir.set(to.x - from.x, to.y - from.y, to.z - from.z)
+    const dist = _losDir.length()
+    if (dist < 0.01) return true
+    _losDir.multiplyScalar(1 / dist)
+    const hit = physics.raycast(
+      { x: from.x, y: from.y, z: from.z },
+      { x: _losDir.x, y: _losDir.y, z: _losDir.z },
+      dist - 0.4,
+    )
+    // No hit before (dist-0.4) → clear view to the player.
+    return !hit
+  }
+
+  // Enemy gunfire FX: muzzle flash + sound. Reuses the player's particle systems.
+  const _efxDir = new Vector3()
+  function enemyFireFx(muzzle: Vector3, dir: Vector3) {
+    _efxDir.copy(dir)
+    muzzleFx.spawn(muzzle, 1, 0.025, 0.6, 3, _efxDir)
+    flashSprites?.spawn(muzzle, {
+      count: 1,
+      life: [0.025, 0.045],
+      speed: [0.03, 0.1],
+      size: [0.12, 0.2],
+      grow: 1.2,
+      spread: 0.1,
+      dir: _efxDir,
+      opacity: 0.9,
+      gravity: 0,
+      drag: 4,
+    })
+    try {
+      audio.play('ak47', { position: { x: muzzle.x, y: muzzle.y, z: muzzle.z }, volume: 0.5, rate: 1 + (Math.random() - 0.5) * 0.08 })
+    } catch {}
+  }
+
+  // ── Team Deathmatch lifecycle ────────────────────────────────────────────────
+  function startMatch(cfg: TdmConfig) {
+    endMatch()
+    match = new TdmMatch(
+      {
+        physics,
+        scene,
+        pool: enemyPool,
+        player,
+        damage,
+        getNav: () => nav,
+        hasLineOfSight: losClear,
+        onEnemyFire: enemyFireFx,
+        playerFiredNow: () => input.lmb && logic.state === 'Idle',
+      },
+      cfg,
+    )
+    match.onMatchOver = () => {
+      endMatch()
+      // Drop back to the map menu after a match.
+      void mapMenu.show().then(async (selection) => {
+        if (selection.mapId !== currentMapId) {
+          await loadMap(selection.mapId)
+          nav = buildNav()
+        }
+        player.respawn(new Vector3(0, 5, 0))
+        // If the user selected TDM, start a new match; else just stay in roam.
+        if (selection.mode === 'tdm' && selection.tdm) {
+          startMatch(selection.tdm)
+        }
+      })
+    }
+  }
+  function endMatch() {
+    if (match) {
+      match.dispose()
+      match = null
+    }
+  }
+
+  // Start a TDM match if the menu requested one, or via dev `?tdm=N`.
+  if (pendingMatch) {
+    startMatch(pendingMatch)
+  } else {
+    const tdmParam = params.get('tdm')
+    if (tdmParam) {
+      const bots = Math.max(1, Math.min(12, Number(tdmParam) || 4))
+      startMatch({ bots, roundsToWin: 2 })
+    }
+  }
+
   let last = performance.now()
   let prevGrounded = player.grounded
   let acc = 0
@@ -289,18 +476,51 @@ async function main() {
       // and rebuilds from the registry. Re-selecting the same id is a no-op
       // beyond closing the menu (handy as a "pause"). The pointer-lock hint
       // returns once the user clicks the canvas again.
-      void mapMenu.show().then(async (id) => {
-        if (id === currentMapId) return
-        await loadMap(id)
-        // Reset the player so they don't fall through removed geometry.
-        player.body.setTranslation({ x: 0, y: 5, z: 0 }, true)
-        player.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+      void mapMenu.show().then(async (selection) => {
+        if (selection.mapId === currentMapId && selection.mode === 'roam') return
+        if (selection.mapId !== currentMapId) {
+          await loadMap(selection.mapId)
+          // Reset the player so they don't fall through removed geometry.
+          player.body.setTranslation({ x: 0, y: 5, z: 0 }, true)
+          player.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+          // Rebuild navigation for the new map's geometry.
+          nav = buildNav()
+        }
+        // If TDM is selected, start a match; otherwise just stay in roam.
+        if (match) endMatch()
+        if (selection.mode === 'tdm' && selection.tdm) {
+          startMatch(selection.tdm)
+        }
       })
     }
 
     acc += dt
     while (acc >= FIXED_DT) {
-      player.update(FIXED_DT, input, cam)
+      // While dead in a match, freeze player movement (spectate until respawn).
+      if (player.alive) player.update(FIXED_DT, input, cam)
+      if (match) {
+        match.update(FIXED_DT)
+      } else if (enemies.length) {
+        // Free-roam dev bots (no match): patrol + react to the player.
+        const playerFiredNow = input.lmb && logic.state === 'Idle'
+        for (const e of enemies) {
+          if (e.alive) {
+            e.think(
+              {
+                nav,
+                target: player,
+                targetPos: player.position,
+                targetFiredNow: playerFiredNow,
+                hasLineOfSight: losClear,
+                dealDamage: (dmg) => damage.applyDamage(player, dmg, e.team),
+                onFire: (muzzle, dir) => enemyFireFx(muzzle, dir),
+              },
+              FIXED_DT,
+            )
+          }
+          e.update(FIXED_DT)
+        }
+      }
       physics.step(FIXED_DT)
       acc -= FIXED_DT
     }
@@ -327,10 +547,10 @@ async function main() {
 
     // footsteps SFX removed — will be provided later by user.
 
-    // Skip the weapon FSM entirely while on a ledge — the hands are busy.
-    // This also prevents the rifle from being fired/reloaded mid-hang, which
-    // would clash with the ledge_idle clip's arm pose.
-    if (player.mode !== 'hanging' && player.mode !== 'climbing') logic.update(dt)
+    // Skip the weapon FSM entirely while on a ledge — the hands are busy — or
+    // while dead in a match. This also prevents the rifle from being
+    // fired/reloaded mid-hang, which would clash with the ledge_idle pose.
+    if (player.alive && player.mode !== 'hanging' && player.mode !== 'climbing') logic.update(dt)
     scene.update(dt)
     // Trigger the climb pull-up overlay the frame the climb starts. It's a
     // one-shot full-body clip; while it plays, locomotion fades to 0 and the
@@ -343,7 +563,7 @@ async function main() {
       player.mode === 'hanging' || player.mode === 'climbing'
         ? { mode: player.mode, yaw: player.ledgeYaw, shimmy: player.ledgeShimmyDir }
         : undefined
-    character.update(player.position, player.velocity, player.grounded, cam.yaw, dt, ledgeInfo)
+    character.update(player.position, player.velocity, player.grounded, cam.yaw, dt, ledgeInfo, player.capsuleBottomOffset)
     // Skip the additive spine aim while on a ledge — the hang/climb pose owns
     // the upper body and we don't want camera pitch warping the chest.
     if (!ledgeInfo) character.applySpineAim(cam.pitch)
@@ -356,8 +576,16 @@ async function main() {
     decals.update(dt)
     shells.update(dt)
 
+    // Keep the camera's fallback eye offset in sync with the player's live
+    // (crouch-aware) eye height, so the FPP placeholder view and the TPP
+    // shoulder anchor both lower when ducking.
+    cam.eyeOffset.y = player.eyeOffsetY
+
     // FPP eye-anchor follows the character's head bone (head is invisibly
-    // scaled-to-zero in FPP but its transform still tracks the body).
+    // scaled-to-zero in FPP but its transform still tracks the body). When
+    // crouching, the capsule center (and thus the head bone) lowers on its own
+    // because the body is shifted down to keep the feet planted — so the FPP
+    // view ducks for free without needing a crouch pose.
     const eyeAnchor = cam.mode === 'FPP' ? character.getHeadWorldPosition(_eyeTmp) ?? undefined : undefined
     cam.update(input, player.position, dt, physics, player.body, eyeAnchor)
 
@@ -372,6 +600,23 @@ async function main() {
       fpsTimer = 0
     }
 
+    let banner: string | undefined
+    let subtitle: string | undefined
+    let scoreboard: string | undefined
+    if (match) {
+      const s = match.state
+      scoreboard = `Round ${s.round}   You ${s.playerRoundWins} – ${s.botRoundWins} Bots   Enemies ${s.botsAlive}/${s.botsTotal}`
+      if (s.phase === 'countdown') {
+        banner = 'Get Ready'
+        subtitle = `Round ${s.round} starts in ${Math.ceil(s.timer)}`
+      } else if (s.banner && s.phase !== 'active') {
+        banner = s.banner
+        subtitle = `You ${s.playerRoundWins} – ${s.botRoundWins} Bots`
+      } else if (!player.alive) {
+        banner = 'You are down'
+      }
+    }
+
     hud.draw({
       mode: cam.mode,
       weaponName: logic.stats.name,
@@ -380,7 +625,12 @@ async function main() {
       reloading: logic.state === 'Reloading',
       fps,
       ads: cam.adsFactor,
-    })
+      health: player.hp,
+      maxHealth: player.maxHp,
+      banner,
+      subtitle,
+      scoreboard,
+    }, dt)
 
     input.endFrame()
     requestAnimationFrame(frame)

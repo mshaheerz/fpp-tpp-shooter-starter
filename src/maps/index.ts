@@ -3,6 +3,8 @@ import { shootRange } from './shootRange'
 import { suburbanStreet } from './suburbanStreet'
 import { industrialYard } from './industrialYard'
 import { ghostCity } from './ghostCity'
+import { deathMatch1 } from './deathmatch1'
+import { deathMatch2 } from './deathmatch2'
 
 /**
  * Describes a playable map. `build()` is called after `Scene.startMap()` so the
@@ -29,4 +31,4 @@ export interface MapDefinition {
  * To add a new map, drop a file under `src/maps/` exporting a `MapDefinition`
  * and append it here — no other code changes required.
  */
-export const MAPS: MapDefinition[] = [shootRange, suburbanStreet, industrialYard, ghostCity]
+export const MAPS: MapDefinition[] = [shootRange, suburbanStreet, industrialYard, ghostCity, deathMatch1,deathMatch2]
