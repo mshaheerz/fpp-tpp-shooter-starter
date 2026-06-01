@@ -278,6 +278,29 @@ export class CharacterAnimator {
   }
 
   /**
+   * Play a one-shot death clip that HOLDS its final frame. Unlike `playOverlay`,
+   * this clamps when finished and never restores locomotion — the corpse keeps
+   * its collapsed pose instead of snapping back to idle. One-way: there is no
+   * recovery path, which matches a dead enemy.
+   */
+  playDeath(name: string): AnimationAction | null {
+    const action = this.makeAction(name)
+    if (!action) return null
+    // Drop any active overlay/locomotion so only the death pose drives the body.
+    this.cancelOverlay()
+    for (const loco of this.locoActions.values()) this.targetWeights.set(loco, 0)
+    action.setLoop(LoopOnce, 1)
+    action.clampWhenFinished = true
+    action.reset()
+    action.enabled = true
+    action.weight = 0
+    action.play()
+    this.targetWeights.set(action, 1)
+    this.activeOverlay = action
+    return action
+  }
+
+  /**
    * Bind a clip as the additive air layer. The clip is expected to already be
    * registered via `addClip()` and to already be additive (caller converts via
    * AnimationUtils.makeClipAdditive before registering). Plays continuously at

@@ -3,3 +3,6 @@ dist
 .DS_Store
 *.log
 .vite
+
+# stale TS incremental build cache
+*.tsbuildinfo

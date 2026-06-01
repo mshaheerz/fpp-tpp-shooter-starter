@@ -4,6 +4,7 @@ import type { PhysicsSystem } from './PhysicsSystem'
 import type { InputManager } from './InputManager'
 import type { CameraRig } from './Camera'
 import type { Combatant, Team } from './ai/DamageSystem'
+import { dlog } from './debug/log'
 
 const PLAYER_MAX_HP = 100
 
@@ -730,7 +731,7 @@ export class Player implements Combatant {
     } catch {}
     this.body.setGravityScale(1, true)
     this.teleport(pos.x, pos.y, pos.z)
-    console.log(`[Player] Respawned at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) - HP: ${this.hp}/${this.maxHp}`)
+    dlog(`[Player] Respawned at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) - HP: ${this.hp}/${this.maxHp}`)
   }
 }
 

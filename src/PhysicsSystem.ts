@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat'
 import type { BufferGeometry, Matrix4 } from 'three'
 import { Vector3 } from 'three'
+import { dlog } from './debug/log'
 
 export interface HitInfo {
   point: { x: number; y: number; z: number }
@@ -30,7 +31,7 @@ export class PhysicsSystem {
   static async init(): Promise<PhysicsSystem> {
     await RAPIER.init()
     const sys = new PhysicsSystem()
-    console.log('[physics] ready')
+    dlog('[physics] ready')
     return sys
   }
 

@@ -6,6 +6,7 @@ import type { CharacterPool } from '../ai/CharacterPool'
 import type { NavGrid } from '../ai/NavGrid'
 import type { DamageSystem } from '../ai/DamageSystem'
 import { Enemy } from '../ai/Enemy'
+import { dlog } from '../debug/log'
 
 export type MatchPhase = 'countdown' | 'active' | 'roundEnd' | 'matchEnd'
 
@@ -130,7 +131,7 @@ export class TdmMatch {
       if (!p) break
       if (p.distanceTo(playerPos) > 14) {
         p.y += 1.5
-        console.log(`[TDM] spawn: ${tries} tries, dist=${p.distanceTo(playerPos).toFixed(1)}m`)
+        dlog(`[TDM] spawn: ${tries} tries, dist=${p.distanceTo(playerPos).toFixed(1)}m`)
         return p
       }
     }
@@ -214,7 +215,7 @@ export class TdmMatch {
             targetFiredNow: playerFired,
             hasLineOfSight: this.deps.hasLineOfSight,
             dealDamage: (dmg) => {
-              console.log(`[TDM] Enemy ${e.id} dealt ${dmg} damage to player`)
+              dlog(`[TDM] Enemy ${e.id} dealt ${dmg} damage to player`)
               this.damage.applyDamage(player, dmg, e.team)
             },
             onFire: this.deps.onEnemyFire,
@@ -223,7 +224,7 @@ export class TdmMatch {
         )
         if (prevState !== e.aiState) {
           const dist = Math.sqrt((e.position.x - player.position.x) ** 2 + (e.position.z - player.position.z) ** 2)
-          console.log(`[TDM] Enemy ${e.id} state: ${prevState} → ${e.aiState} (distance: ${dist.toFixed(1)}m)`)
+          dlog(`[TDM] Enemy ${e.id} state: ${prevState} → ${e.aiState} (distance: ${dist.toFixed(1)}m)`)
         }
       }
       e.update(dt)

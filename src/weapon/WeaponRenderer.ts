@@ -11,6 +11,7 @@ import {
 } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { WEAPONS, type WeaponId, type WeaponStats } from './WeaponData'
+import { dlog } from '../debug/log'
 
 /**
  * Loads each weapon GLB at most once and exposes a SINGLE `Object3D` per weapon.
@@ -76,11 +77,11 @@ export class WeaponRenderer {
           ;(o as Mesh).castShadow = true
         }
       })
-      console.log(
+      dlog(
         `[weapon] ${stats.name} loaded, raw size=${size.toArray().map((v) => v.toFixed(3))}, normalized to 1m`,
       )
     } catch {
-      console.log(`[weapon] using placeholder for ${stats.name} — drop ${stats.modelUrl.replace('./', 'public/')}`)
+      dlog(`[weapon] using placeholder for ${stats.name} — drop ${stats.modelUrl.replace('./', 'public/')}`)
       model = buildPlaceholderWeapon(id)
     }
     // Add anchor children once.

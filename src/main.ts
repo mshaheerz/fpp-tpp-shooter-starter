@@ -27,6 +27,7 @@ import { Enemy } from './ai/Enemy'
 import { NavGrid } from './ai/NavGrid'
 import { TdmMatch, type TdmConfig } from './modes/TdmMatch'
 import type { AnimationManifest } from './character/ThirdPersonCharacter'
+import { dlog } from './debug/log'
 
 const FIXED_DT = 1 / 60
 const _eyeTmp = new Vector3()
@@ -72,9 +73,9 @@ async function main() {
     const ok = await scene.loadMapById(id, physics)
     if (!ok) {
       scene.addProceduralGround(physics)
-      console.log('[map] assets missing for', id, '— using procedural fallback')
+      dlog('[map] assets missing for', id, '— using procedural fallback')
     } else {
-      console.log('[map] loaded', id)
+      dlog('[map] loaded', id)
     }
     currentMapId = id
     hideLoading()
@@ -111,14 +112,14 @@ async function main() {
     const manifest = await res.json()
     characterManifest = manifest
     await character.load(manifest)
-    console.log('[character] Mixamo manifest loaded')
+    dlog('[character] Mixamo manifest loaded')
     // Sync the climb FSM duration to the actual ledge_climb_up clip length so
     // the teleport-to-top happens exactly when the pull-up animation finishes
     // — otherwise short fixed timeouts cut the clip off mid-pose.
     const climbClip = character.animator.getClip('ledge_climb_up')
     if (climbClip) player.setClimbDuration(climbClip.duration)
   } catch {
-    console.log(
+    dlog(
       '[character] using placeholder humanoid — drop ybot.glb + animation GLBs into public/assets/character/ and add manifest.json',
     )
   }
@@ -165,7 +166,7 @@ async function main() {
       e.onDeath = (dead) => damage.unregisterCollider(dead.colliderHandle)
       enemies.push(e)
     }
-    console.log(`[tdm] spawned ${enemies.length} free-roam test bot(s)`)
+    dlog(`[tdm] spawned ${enemies.length} free-roam test bot(s)`)
   }
 
   // Active Team Deathmatch match, if any. Built on demand (dev `?tdm=N`, or the
@@ -197,9 +198,9 @@ async function main() {
     flashSprites = new SpriteFxSystem(flashTex, 80, true, new Color(0xffcc78))
     scene.add(smokeSprites.object)
     scene.add(flashSprites.object)
-    console.log('[fx] Kenney smoke/flash sprites enabled')
+    dlog('[fx] Kenney smoke/flash sprites enabled')
   } catch {
-    console.log('[fx] Kenney smoke textures not available; using shader particles only')
+    dlog('[fx] Kenney smoke textures not available; using shader particles only')
   }
 
   // Particle systems live at scene root so they aren't culled with the FPP arms.

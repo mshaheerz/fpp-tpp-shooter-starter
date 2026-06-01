@@ -11,6 +11,7 @@ import type { PhysicsSystem } from '../PhysicsSystem'
 import type { CharacterRig, CharacterPool } from './CharacterPool'
 import type { Combatant, Team } from './DamageSystem'
 import type { NavGrid } from './NavGrid'
+import { dlog } from '../debug/log'
 
 // Enemy capsule matches the player's default size so hit detection + ground
 // behavior feel consistent.
@@ -175,18 +176,12 @@ export class Enemy implements Combatant {
       this.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
       this.collider.setEnabled(false)
     } catch {}
-    // Try to play a death animation; fall back to other animations if not found
+    // Play a death animation that holds its final (collapsed) frame. Fall back
+    // through available clips so the corpse never snaps back to an idle pose.
     const a = this.rig.animator
-    if (a.hasClip('death')) {
-      a.playOverlay('death', false)
-    } else if (a.hasClip('dying')) {
-      a.playOverlay('dying', false)
-    } else if (a.hasClip('death_stand')) {
-      a.playOverlay('death_stand', false)
-    } else if (a.hasClip('falling_to_landing')) {
-      a.playOverlay('falling_to_landing', false)
-    }
-    console.log(`[Enemy] ${this.id} died`)
+    const deathClip = ['death', 'dying', 'falling_to_landing'].find((n) => a.hasClip(n))
+    if (deathClip) a.playDeath(deathClip)
+    dlog(`[Enemy] ${this.id} died`)
     this.onDeath?.(this)
   }
 
@@ -297,13 +292,13 @@ export class Enemy implements Combatant {
         canSee = true
         // DEBUG: print when vision acquired
         if (this.alertTimer < 0.1) {
-          console.log(`[Enemy] ${this.id} can see target at distance ${dist.toFixed(1)}m, FOV: ${inFov}`)
+          dlog(`[Enemy] ${this.id} can see target at distance ${dist.toFixed(1)}m, FOV: ${inFov}`)
         }
       }
     }
     // Hearing: the player's gunfire gives away their position within range.
     if (!canSee && ctx.target.alive && ctx.targetFiredNow && dist <= HEARING_RANGE) {
-      console.log(`[Enemy] ${this.id} heard gunfire at distance ${dist.toFixed(1)}m`)
+      dlog(`[Enemy] ${this.id} heard gunfire at distance ${dist.toFixed(1)}m`)
       this.lastKnownTarget.copy(ctx.targetPos)
       this.hasLastKnown = true
       if (this.aiState === 'patrol') this.aiState = 'search', (this.searchTimer = SEARCH_DURATION)
@@ -375,7 +370,7 @@ export class Enemy implements Combatant {
         this.faceYaw(targetYaw, dt, 12)
         // Fire once the reaction delay has elapsed.
         if (this.alertTimer >= REACTION_TIME) {
-          console.log(`[Enemy] ${this.id} firing! alertTimer=${this.alertTimer.toFixed(2)}, dist=${dist.toFixed(1)}m`)
+          dlog(`[Enemy] ${this.id} firing! alertTimer=${this.alertTimer.toFixed(2)}, dist=${dist.toFixed(1)}m`)
           this.tryFire(ctx, dt, dist)
         }
         break
@@ -435,7 +430,7 @@ export class Enemy implements Combatant {
     const range01 = Math.min(1, dist / ATTACK_RANGE)
     const hitChance = (0.85 - 0.45 * range01) * (0.6 + 0.4 * settle)
     if (Math.random() < hitChance) {
-      console.log(`[Enemy] ${this.id} hit! distance=${dist.toFixed(1)}m, settle=${settle.toFixed(2)}, chance=${hitChance.toFixed(2)}`)
+      dlog(`[Enemy] ${this.id} hit! distance=${dist.toFixed(1)}m, settle=${settle.toFixed(2)}, chance=${hitChance.toFixed(2)}`)
       ctx.dealDamage(ENEMY_DAMAGE)
     }
 
