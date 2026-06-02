@@ -1,22 +1,9 @@
-import {
-  Bone,
-  Box3,
-  Group,
-  Object3D,
-  Vector3,
-  MathUtils,
-  AnimationClip,
-  AnimationUtils,
-  Mesh,
-  SkinnedMesh,
-  BoxGeometry,
-  MeshStandardMaterial,
-  CapsuleGeometry,
-  Quaternion,
-  Euler,
-} from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { Group, Object3D, Vector3, MathUtils, Quaternion, Euler } from 'three'
 import { CharacterAnimator, type LocomotionState } from './CharacterAnimator'
+import { loadCharacterAssets } from './characterAssets'
+import { findBoneByAnySuffix, buildPlaceholderHumanoid } from './rigHelpers'
+import { RUN_SPEED_THRESHOLD, MOVE_SPEED_THRESHOLD, YAW_LERP_RATE } from './locomotionConstants'
+import { wrapAngle } from '../common/math'
 
 export interface AnimationManifest {
   /** Path to the rigged base mesh GLB ("Y Bot" from Mixamo, WITH SKIN). */
@@ -34,12 +21,6 @@ const _q = new Quaternion()
 const _q2 = new Quaternion()
 const _forward = new Vector3()
 
-// Sit between WALK_SPEED (1.5) and RUN_SPEED (5.5): anything above ~3 m/s
-// counts as a jog/run for animation purposes. Below MOVE_SPEED_THRESHOLD the
-// character returns to idle.
-const RUN_SPEED_THRESHOLD = 3.0
-const MOVE_SPEED_THRESHOLD = 0.3
-const YAW_LERP_RATE = 8
 
 /**
  * Visual-only TPP character. Follows the physics capsule transform and applies
@@ -80,111 +61,38 @@ export class ThirdPersonCharacter {
 
   constructor() {
     // Build a placeholder humanoid by default. `load()` replaces it.
-    const ph = buildPlaceholder()
+    const ph = buildPlaceholderHumanoid({ skin: 0xd9c39a, cloth: 0x556b2f, withSpine: true })
     this.object.add(ph.root)
     this.rightHand = ph.rightHand
-    this.spine1 = ph.spine
-    this.spine2 = ph.spine
+    this.spine1 = ph.spine ?? null
+    this.spine2 = ph.spine ?? null
     this.animator = new CharacterAnimator(ph.root)
   }
 
   async load(manifest: AnimationManifest) {
-    const loader = new GLTFLoader()
-    const baseGltf = await loader.loadAsync(manifest.base)
-    const baseRoot = baseGltf.scene
-    baseRoot.traverse((o) => {
-      if ((o as Mesh).isMesh) {
-        const m = o as Mesh
-        m.castShadow = true
-        m.receiveShadow = true
-        // Skinned meshes can be culled incorrectly when their bounding box is
-        // computed from the bind pose only; skip frustum culling to be safe.
-        if ((m as SkinnedMesh).isSkinnedMesh) m.frustumCulled = false
-      }
-    })
-
-    // Mixamo characters export at ~180 units tall (cm). Auto-rescale so the
-    // model is roughly 1.8m tall, matching the player capsule.
-    baseRoot.updateMatrixWorld(true)
-    const bbox = new Box3().setFromObject(baseRoot)
-    const rawHeight = bbox.max.y - bbox.min.y
-    if (rawHeight > 5) {
-      // Almost certainly in centimeters.
-      const scale = 1.8 / rawHeight
-      baseRoot.scale.setScalar(scale)
-      baseRoot.updateMatrixWorld(true)
-      bbox.setFromObject(baseRoot)
-    }
-    // Compute feet offset: distance from root origin (y=0 of the GLB) down to bottom.
-    this.feetOffset = -bbox.min.y
+    // Shared loader: rescales the Mixamo base to ~1.8 m, strips Hips drift, and
+    // synthesizes the additive jump leg-tuck. The enemy CharacterPool uses the
+    // exact same helper, so player and bots animate identically.
+    const assets = await loadCharacterAssets(manifest)
+    const baseRoot = assets.baseRoot
+    this.feetOffset = assets.feetOffset
 
     // Replace placeholder.
     this.object.clear()
     this.object.add(baseRoot)
     this.placeholder = false
 
-    // Find bones.
+    // Find bones (spine1/spine2/head are needed for additive aim + FPP head hide,
+    // which the pool's rigs don't need — so this stays here, not in the loader).
     const hand = findBoneByAnySuffix(baseRoot, ['RightHand', 'mixamorigRightHand'])
     if (hand) this.rightHand = hand
     this.spine1 = findBoneByAnySuffix(baseRoot, ['Spine1', 'mixamorigSpine1'])
     this.spine2 = findBoneByAnySuffix(baseRoot, ['Spine2', 'mixamorigSpine2'])
     this.head = findBoneByAnySuffix(baseRoot, ['Head', 'mixamorigHead'])
 
-    // Build a fresh animator bound to the new skinned mesh root.
+    // Fresh animator bound to the new skinned mesh root; load the shared clips.
     this.animator = new CharacterAnimator(baseRoot)
-
-    // Load animation clips in parallel.
-    const entries = Object.entries(manifest.animations)
-    const loaded = await Promise.all(
-      entries.map(async ([name, path]) => {
-        try {
-          const gltf = await loader.loadAsync(path)
-          // Prefer the first non-empty clip (some FBX exports include an empty "Take 001").
-          const clip: AnimationClip | undefined = gltf.animations.find((c) => c && c.tracks && c.tracks.length > 0) ?? gltf.animations[0]
-          if (clip && clip.tracks && clip.tracks.length > 0) return [name, clip] as const
-        } catch (e) {
-          console.warn('[character] failed to load anim', name, path, e)
-        }
-        return [name, null] as const
-      }),
-    )
-    for (const [name, clip] of loaded) {
-      if (!clip) continue
-      // Mixamo's "in place" animations still embed a small Hips position track.
-      // For overlays (firing/reload/aim) we strip ALL position tracks so when
-      // they end, the root doesn't jump back. For locomotion we leave Hips Y
-      // (bob) but kill XZ drift.
-      const isOverlay = name === 'firing_rifle' || name === 'reload_rifle' || name === 'aim_idle' || name === 'knife_stab'
-      clip.tracks = clip.tracks.filter((track) => {
-        if (!track.name.endsWith('.position')) return true
-        if (!/Hips/i.test(track.name)) return true
-        if (isOverlay) return false
-        // Locomotion: drop X and Z components by zeroing them.
-        if (track.values && track.values.length % 3 === 0) {
-          const v = track.values as Float32Array
-          for (let i = 0; i < v.length; i += 3) {
-            v[i] = 0
-            v[i + 2] = 0
-          }
-        }
-        return true
-      })
-      this.animator.addClip(name, clip)
-    }
-
-    // Synthesize an ADDITIVE air-layer clip from the rifle jump (and pistol jump
-    // if present) — legs + hips-Y bob only. This rides on top of whatever
-    // locomotion clip is active so the arms keep holding the gun and the head
-    // never spins. Without this, the full-body Mixamo jump clip wrecks the
-    // upper-body pose.
-    const sourceJump = this.animator.getClip('jump')
-    if (sourceJump) {
-      this.animator.addClip('jump_air', buildLegsOnlyAdditive(sourceJump, 'jump_air'))
-    }
-    const sourcePistolJump = this.animator.getClip('pistol_jump')
-    if (sourcePistolJump) {
-      this.animator.addClip('pistol_jump_air', buildLegsOnlyAdditive(sourcePistolJump, 'pistol_jump_air'))
-    }
+    for (const [name, clip] of assets.clips) this.animator.addClip(name, clip)
 
     // Default to the rifle set; weapon swaps call useAnimationSet().
     this.useAnimationSet('rifle')
@@ -442,113 +350,4 @@ export class ThirdPersonCharacter {
     this.head.getWorldPosition(out)
     return out
   }
-}
-
-function wrapAngle(a: number): number {
-  while (a > Math.PI) a -= Math.PI * 2
-  while (a < -Math.PI) a += Math.PI * 2
-  return a
-}
-
-function findBoneByAnySuffix(root: Object3D, suffixes: string[]): Bone | null {
-  let found: Bone | null = null
-  root.traverse((o) => {
-    if (found) return
-    const b = o as Bone
-    if (b.isBone || (o as any).type === 'Bone') {
-      for (const s of suffixes) {
-        if (b.name === s || b.name.endsWith(s)) {
-          found = b
-          return
-        }
-      }
-    }
-  })
-  return found
-}
-
-/**
- * Build an additive clip that contains only the lower-body tracks from `source`
- * (UpLeg / Leg / Foot / Toe + Hips Y bob). The intent is to layer this on top
- * of locomotion while airborne, so:
- *   - the legs tuck/extend visibly as the character jumps and falls;
- *   - the arms, spine, neck and head stay driven by whatever locomotion clip
- *     was running, so the rifle hold is preserved;
- *   - the Hips Y track adds the small vertical bob the jump anim has baked in.
- *
- * Frame 0 of `source` is used as the reference pose for `makeClipAdditive` —
- * the first frame of Mixamo's jump is essentially the bind pose, so the
- * additive delta starts at zero and ramps in cleanly when faded to weight 1.
- */
-function buildLegsOnlyAdditive(source: AnimationClip, name: string): AnimationClip {
-  const clone = source.clone()
-  clone.name = name
-  // Keep ONLY the leg chain. We deliberately drop Hips entirely — additive deltas
-  // on Hips.rotation propagate down the whole skeleton (it's the root bone), so
-  // any tilt baked into the jump clip's hips would visibly drag the chest,
-  // arms and head with it and visually conflict with the locomotion clip
-  // that's still driving those bones. Vertical hip-bob isn't worth that cost.
-  clone.tracks = clone.tracks.filter((track) =>
-    /(UpLeg|Leg|Foot|Toe)/i.test(track.name) && !/Hips/i.test(track.name),
-  )
-  AnimationUtils.makeClipAdditive(clone)
-  return clone
-}
-
-/**
- * Stylized humanoid built from primitives. Used when no Mixamo GLB is loaded.
- * The "right hand" is a small cube whose transform is suitable for weapon attach.
- */
-function buildPlaceholder() {
-  const root = new Group()
-  const mat = new MeshStandardMaterial({ color: 0xd9c39a, roughness: 0.6 })
-  const matDark = new MeshStandardMaterial({ color: 0x556b2f, roughness: 0.8 })
-
-  // Torso
-  const torso = new Mesh(new CapsuleGeometry(0.22, 0.5, 4, 8), matDark)
-  torso.position.y = 1.05
-  torso.castShadow = true
-  root.add(torso)
-
-  // Head
-  const head = new Mesh(new BoxGeometry(0.28, 0.28, 0.28), mat)
-  head.position.y = 1.6
-  head.castShadow = true
-  root.add(head)
-
-  // Spine attach (proxy bone for aim)
-  const spine = new Object3D()
-  spine.position.y = 1.2
-  root.add(spine)
-
-  // Arms
-  const armGeom = new BoxGeometry(0.13, 0.55, 0.13)
-  const lArm = new Mesh(armGeom, matDark)
-  lArm.position.set(-0.32, 1.05, 0)
-  lArm.castShadow = true
-  root.add(lArm)
-  const rArm = new Mesh(armGeom, matDark)
-  rArm.position.set(0.32, 1.05, 0)
-  rArm.castShadow = true
-  root.add(rArm)
-
-  // Right hand attach point at the bottom-front of the right arm.
-  const rightHand = new Object3D()
-  rightHand.position.set(0.32, 0.78, 0.15)
-  // Rotate so a weapon parented here points forward.
-  rightHand.rotation.set(0, -Math.PI / 2, 0)
-  root.add(rightHand)
-
-  // Legs
-  const legGeom = new BoxGeometry(0.18, 0.8, 0.18)
-  const lLeg = new Mesh(legGeom, mat)
-  lLeg.position.set(-0.12, 0.42, 0)
-  lLeg.castShadow = true
-  root.add(lLeg)
-  const rLeg = new Mesh(legGeom, mat)
-  rLeg.position.set(0.12, 0.42, 0)
-  rLeg.castShadow = true
-  root.add(rLeg)
-
-  return { root, spine, rightHand }
 }

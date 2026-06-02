@@ -8,6 +8,7 @@ import {
   Texture,
   Vector3,
 } from 'three'
+import { lerp as mix } from '../common/math'
 
 interface Particle {
   active: boolean
@@ -123,8 +124,4 @@ export class SpriteFxSystem {
       m.rotation += p.spin * dt
     }
   }
-}
-
-function mix(a: number, b: number, t: number) {
-  return a + (b - a) * t
 }

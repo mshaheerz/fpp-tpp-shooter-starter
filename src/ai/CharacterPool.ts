@@ -1,16 +1,9 @@
-import {
-  Bone,
-  Object3D,
-  Group,
-  Mesh,
-  BoxGeometry,
-  CapsuleGeometry,
-  MeshStandardMaterial,
-} from 'three'
+import { Object3D } from 'three'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { CharacterAnimator } from '../character/CharacterAnimator'
 import type { AnimationManifest } from '../character/ThirdPersonCharacter'
 import { loadCharacterAssets, type CharacterAssets } from '../character/characterAssets'
+import { findBoneByAnySuffix, buildPlaceholderHumanoid } from '../character/rigHelpers'
 
 /**
  * A single cloned character instance for an enemy: its own scene object, bones,
@@ -27,23 +20,6 @@ export interface CharacterRig {
   readonly feetOffset: number
   /** True if this is the primitive placeholder (no Mixamo assets). */
   readonly placeholder: boolean
-}
-
-function findBoneByAnySuffix(root: Object3D, suffixes: string[]): Bone | null {
-  let found: Bone | null = null
-  root.traverse((o) => {
-    if (found) return
-    const b = o as Bone
-    if (b.isBone || (o as { type?: string }).type === 'Bone') {
-      for (const s of suffixes) {
-        if (b.name === s || b.name.endsWith(s)) {
-          found = b
-          return
-        }
-      }
-    }
-  })
-  return found
 }
 
 /** Bind the rifle locomotion set on a freshly-created animator. Enemies use the
@@ -114,7 +90,7 @@ export class CharacterPool {
   }
 
   private spawnPlaceholderRig(): CharacterRig {
-    const ph = buildPlaceholder()
+    const ph = buildPlaceholderHumanoid({ skin: 0xc08457, cloth: 0x8a3b3b, withSpine: false })
     const animator = new CharacterAnimator(ph.root)
     // No clips to bind; the placeholder simply stands. Enemies still move via
     // the capsule, so the box humanoid slides along — acceptable for a fallback.
@@ -128,47 +104,3 @@ export class CharacterPool {
   }
 }
 
-/** Reddish placeholder humanoid so enemies are visually distinct from the
- *  player's tan placeholder, when no Mixamo assets are present. */
-function buildPlaceholder(): { root: Group; rightHand: Object3D } {
-  const root = new Group()
-  const skin = new MeshStandardMaterial({ color: 0xc08457, roughness: 0.6 })
-  const cloth = new MeshStandardMaterial({ color: 0x8a3b3b, roughness: 0.8 })
-
-  const torso = new Mesh(new CapsuleGeometry(0.22, 0.5, 4, 8), cloth)
-  torso.position.y = 1.05
-  torso.castShadow = true
-  root.add(torso)
-
-  const head = new Mesh(new BoxGeometry(0.28, 0.28, 0.28), skin)
-  head.position.y = 1.6
-  head.castShadow = true
-  root.add(head)
-
-  const armGeom = new BoxGeometry(0.13, 0.55, 0.13)
-  const lArm = new Mesh(armGeom, cloth)
-  lArm.position.set(-0.32, 1.05, 0)
-  lArm.castShadow = true
-  root.add(lArm)
-  const rArm = new Mesh(armGeom, cloth)
-  rArm.position.set(0.32, 1.05, 0)
-  rArm.castShadow = true
-  root.add(rArm)
-
-  const rightHand = new Object3D()
-  rightHand.position.set(0.32, 0.78, 0.15)
-  rightHand.rotation.set(0, -Math.PI / 2, 0)
-  root.add(rightHand)
-
-  const legGeom = new BoxGeometry(0.18, 0.8, 0.18)
-  const lLeg = new Mesh(legGeom, skin)
-  lLeg.position.set(-0.12, 0.42, 0)
-  lLeg.castShadow = true
-  root.add(lLeg)
-  const rLeg = new Mesh(legGeom, skin)
-  rLeg.position.set(0.12, 0.42, 0)
-  rLeg.castShadow = true
-  root.add(rLeg)
-
-  return { root, rightHand }
-}

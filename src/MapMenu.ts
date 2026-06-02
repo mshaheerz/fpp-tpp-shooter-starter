@@ -1,4 +1,5 @@
 import { MAPS, type MapDefinition } from './maps'
+import { clamp } from './common/math'
 
 export type GameMode = 'roam' | 'tdm'
 
@@ -173,8 +174,4 @@ export class MapMenu {
   isOpen(): boolean {
     return !this.el.classList.contains('hidden')
   }
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v))
 }

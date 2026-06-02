@@ -12,6 +12,8 @@ import type { CharacterRig, CharacterPool } from './CharacterPool'
 import type { Combatant, Team } from './DamageSystem'
 import type { NavGrid } from './NavGrid'
 import { dlog } from '../debug/log'
+import { wrapAngle } from '../common/math'
+import { RUN_SPEED_THRESHOLD, MOVE_SPEED_THRESHOLD } from '../character/locomotionConstants'
 
 // Enemy capsule matches the player's default size so hit detection + ground
 // behavior feel consistent.
@@ -19,9 +21,6 @@ const ENEMY_RADIUS = 0.36
 const ENEMY_HALF_HEIGHT = 0.55
 const ENEMY_FULL_HALF = ENEMY_HALF_HEIGHT + ENEMY_RADIUS // center→feet
 const ENEMY_MAX_HP = 100
-
-const RUN_SPEED_THRESHOLD = 3.0
-const MOVE_SPEED_THRESHOLD = 0.3
 
 // ── Perception / combat tuning (fair-but-dangerous defaults) ──────────────────
 const VISION_RANGE = 32 // metres the enemy can see
@@ -516,10 +515,4 @@ function buildGun(hand: Object3D): Object3D {
   muzzle.position.set(0, 0, 0.52)
   gun.add(muzzle)
   return muzzle
-}
-
-function wrapAngle(a: number): number {
-  while (a > Math.PI) a -= Math.PI * 2
-  while (a < -Math.PI) a += Math.PI * 2
-  return a
 }
