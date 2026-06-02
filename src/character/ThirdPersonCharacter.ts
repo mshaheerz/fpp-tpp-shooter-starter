@@ -3,6 +3,7 @@ import { CharacterAnimator, type LocomotionState } from './CharacterAnimator'
 import { loadCharacterAssets } from './characterAssets'
 import { findBoneByAnySuffix, buildPlaceholderHumanoid } from './rigHelpers'
 import { RUN_SPEED_THRESHOLD, MOVE_SPEED_THRESHOLD, YAW_LERP_RATE } from './locomotionConstants'
+import { bindRifleLocomotionWithExtras } from './locomotionBindings'
 import { wrapAngle } from '../common/math'
 
 export interface AnimationManifest {
@@ -120,11 +121,11 @@ export class ThirdPersonCharacter {
     // Ledge bindings are shared across weapon sets — when hanging, the rifle
     // hold is irrelevant; both hands are on the ledge. Fall back to the hang
     // clip if a shimmy clip is missing.
-    const ledgeBindings = has('ledge_idle')
+    const ledgeBindings: Record<string, string> = has('ledge_idle')
       ? {
-          ledge: 'ledge_idle' as const,
-          ledgeShimmyL: (has('ledge_shimmy_left') ? 'ledge_shimmy_left' : 'ledge_idle') as string,
-          ledgeShimmyR: (has('ledge_shimmy_right') ? 'ledge_shimmy_right' : 'ledge_idle') as string,
+          ledge: 'ledge_idle',
+          ledgeShimmyL: has('ledge_shimmy_left') ? 'ledge_shimmy_left' : 'ledge_idle',
+          ledgeShimmyR: has('ledge_shimmy_right') ? 'ledge_shimmy_right' : 'ledge_idle',
         }
       : {}
     if (set === 'knife' && has('knife_idle')) {
@@ -162,20 +163,7 @@ export class ThirdPersonCharacter {
       })
       return
     }
-    // Rifle (default) set.
-    this.animator.bindLocomotion({
-      idle: 'idle',
-      walk: 'walk_forward',
-      run: 'run_forward',
-      strafeL: 'strafe_left',
-      strafeR: 'strafe_right',
-      back: 'walk_backward',
-      runBack: has('run_backward') ? 'run_backward' : 'walk_backward',
-      jump: 'jump',
-      fall: has('falling_to_landing') ? 'falling_to_landing' : 'jump',
-      land: 'jump',
-      ...ledgeBindings,
-    })
+    bindRifleLocomotionWithExtras(this.animator, ledgeBindings)
   }
 
   update(

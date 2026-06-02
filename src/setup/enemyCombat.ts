@@ -3,6 +3,7 @@ import type { PhysicsSystem } from '../PhysicsSystem'
 import type AudioManager from '../audio/AudioManager'
 import type { GLSLParticleSystem } from '../particle/GLSLParticleSystem'
 import type { SpriteFxSystem } from '../particle/SpriteFxSystem'
+import { playSpatialWeaponSound, spawnMuzzleFlash } from './muzzleFx'
 
 const _losDir = new Vector3()
 const _muzzleDir = new Vector3()
@@ -32,24 +33,19 @@ export function createEnemyCombatHelpers(deps: EnemyCombatDeps) {
     enemyFireFx(muzzle: Vector3, dir: Vector3) {
       _muzzleDir.copy(dir)
       deps.muzzleFx.spawn(muzzle, 1, 0.025, 0.6, 3, _muzzleDir)
-      deps.getFlashSprites()?.spawn(muzzle, {
+      spawnMuzzleFlash(deps.getFlashSprites(), muzzle, _muzzleDir, {
         count: 1,
         life: [0.025, 0.045],
         speed: [0.03, 0.1],
         size: [0.12, 0.2],
         grow: 1.2,
         spread: 0.1,
-        dir: _muzzleDir,
         opacity: 0.9,
         gravity: 0,
         drag: 4,
       })
       try {
-        deps.audio.play('ak47', {
-          position: { x: muzzle.x, y: muzzle.y, z: muzzle.z },
-          volume: 0.5,
-          rate: 1 + (Math.random() - 0.5) * 0.08,
-        })
+        playSpatialWeaponSound(deps.audio, 'ak47', muzzle, 0.5, 0.08)
       } catch {}
     },
   }

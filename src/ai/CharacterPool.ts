@@ -4,6 +4,7 @@ import { CharacterAnimator } from '../character/CharacterAnimator'
 import type { AnimationManifest } from '../character/ThirdPersonCharacter'
 import { loadCharacterAssets, type CharacterAssets } from '../character/characterAssets'
 import { findBoneByAnySuffix, buildPlaceholderHumanoid } from '../character/rigHelpers'
+import { bindRifleLocomotion } from '../character/locomotionBindings'
 
 /**
  * A single cloned character instance for an enemy: its own scene object, bones,
@@ -20,26 +21,6 @@ export interface CharacterRig {
   readonly feetOffset: number
   /** True if this is the primitive placeholder (no Mixamo assets). */
   readonly placeholder: boolean
-}
-
-/** Bind the rifle locomotion set on a freshly-created animator. Enemies use the
- *  rifle stance; weapon-specific stances aren't needed for bots. */
-function bindRifleLocomotion(animator: CharacterAnimator) {
-  const has = (n: string) => animator.hasClip(n)
-  if (has('jump_air')) animator.bindAirAdditive('jump_air')
-  animator.bindLocomotion({
-    idle: 'idle',
-    walk: 'walk_forward',
-    run: 'run_forward',
-    strafeL: 'strafe_left',
-    strafeR: 'strafe_right',
-    back: 'walk_backward',
-    runBack: has('run_backward') ? 'run_backward' : 'walk_backward',
-    jump: 'jump',
-    fall: has('falling_to_landing') ? 'falling_to_landing' : 'jump',
-    land: 'jump',
-  })
-  animator.setLocomotion('idle')
 }
 
 /**
@@ -79,6 +60,7 @@ export class CharacterPool {
     const animator = new CharacterAnimator(object)
     for (const [name, clip] of this.assets.clips) animator.addClip(name, clip)
     bindRifleLocomotion(animator)
+    animator.setLocomotion('idle')
 
     return {
       object,
@@ -103,4 +85,3 @@ export class CharacterPool {
     }
   }
 }
-

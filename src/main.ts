@@ -28,6 +28,9 @@ import { createAudio } from './setup/audio'
 import { createWeaponHitHandlers } from './setup/weaponHitHandlers'
 import { createEnemyCombatHelpers } from './setup/enemyCombat'
 import { createMatchController } from './setup/matchController'
+import { setupDevBots } from './setup/devBots'
+import { createMapLoader, createMapMenuReopener, pickInitialMap, startRequestedMatch } from './setup/mapFlow'
+import { drawHudFrame } from './setup/hudState'
 
 const FIXED_DT = 1 / 60
 const _eyeTmp = new Vector3()
@@ -40,6 +43,13 @@ async function main() {
   }
   function hideLoading() {
     if (loadingEl) loadingEl.style.display = 'none'
+  }
+  const loadingUi = {
+    show(text: string) {
+      setLoading(text)
+      if (loadingEl) loadingEl.style.display = ''
+    },
+    hide: hideLoading,
   }
 
   setLoading('Initializing physics...')
@@ -63,27 +73,13 @@ async function main() {
   // game loop starts. M reopens it in-game to swap maps without reloading.
   const mapMenu = new MapMenu()
   let currentMapId = 'shootRange'
-
-  async function loadMap(id: string) {
-    setLoading(`Loading map: ${id}…`)
-    if (loadingEl) loadingEl.style.display = ''
-    const ok = await scene.loadMapById(id, physics)
-    if (!ok) {
-      scene.addProceduralGround(physics)
-      dlog('[map] assets missing for', id, '— using procedural fallback')
-    } else {
-      dlog('[map] loaded', id)
-    }
+  const loadMap = createMapLoader(scene, physics, loadingUi, (id) => {
     currentMapId = id
-    hideLoading()
-  }
+  })
 
   // Hide the loading overlay so the menu is visible, then wait for a pick.
   hideLoading()
-  const firstPick = await mapMenu.show()
-  await loadMap(firstPick.mapId)
-  // Defer starting a TDM match until the player + systems exist (below).
-  const pendingMatch = firstPick.mode === 'tdm' ? firstPick.tdm ?? null : null
+  const { pendingMatch } = await pickInitialMap(mapMenu, loadMap)
 
   const player = new Player(physics)
   scene.add(player.debugMesh)
@@ -149,22 +145,7 @@ async function main() {
 
   // Dev free-roam bots: `?bot=N` drops N bots that just patrol the nav grid
   // (no match logic) — handy for testing pathfinding/hit detection in isolation.
-  const enemies: Enemy[] = []
-  const botParam = params.get('bot')
-  if (botParam) {
-    const n = Math.max(1, Math.min(8, Number(botParam) || 1))
-    for (let i = 0; i < n; i++) {
-      const spawn = nav.randomWalkable() ?? new Vector3((i - (n - 1) / 2) * 1.5, 3, -6)
-      spawn.y = 3
-      const e = new Enemy(physics, enemyPool, spawn)
-      scene.add(e.rig.object)
-      damage.register(e)
-      damage.registerCollider(e.colliderHandle, e)
-      e.onDeath = (dead) => damage.unregisterCollider(dead.colliderHandle)
-      enemies.push(e)
-    }
-    dlog(`[tdm] spawned ${enemies.length} free-roam test bot(s)`)
-  }
+  const enemies: Enemy[] = setupDevBots({ physics, scene, enemyPool, damage, nav, params })
 
   // FPSMesh kept around solely for its recoil spring (camera kick); its
   // placeholder geometry is hidden — we use the Mixamo character's real arms
@@ -268,16 +249,7 @@ async function main() {
   })
   const { startMatch, endMatch, getMatch } = matchController
 
-  // Start a TDM match if the menu requested one, or via dev `?tdm=N`.
-  if (pendingMatch) {
-    startMatch(pendingMatch)
-  } else {
-    const tdmParam = params.get('tdm')
-    if (tdmParam) {
-      const bots = Math.max(1, Math.min(12, Number(tdmParam) || 4))
-      startMatch({ bots, roundsToWin: 2 })
-    }
-  }
+  startRequestedMatch(pendingMatch, params, startMatch)
 
   let last = performance.now()
   let prevGrounded = player.grounded
@@ -285,18 +257,19 @@ async function main() {
   let frames = 0
   let fpsTimer = 0
   let fps = 0
-  async function reopenMapMenu() {
-    const selection = await mapMenu.show()
-    if (selection.mapId === currentMapId && selection.mode === 'roam') return
-    if (selection.mapId !== currentMapId) {
-      await loadMap(selection.mapId)
-      player.body.setTranslation({ x: 0, y: 5, z: 0 }, true)
-      player.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
-      nav = buildNav()
-    }
-    if (getMatch()) endMatch()
-    if (selection.mode === 'tdm' && selection.tdm) startMatch(selection.tdm)
-  }
+  const reopenMapMenu = createMapMenuReopener({
+    mapMenu,
+    getCurrentMapId: () => currentMapId,
+    loadMap,
+    player,
+    rebuildNav: buildNav,
+    setNav: (nextNav) => {
+      nav = nextNav
+    },
+    hasActiveMatch: () => !!getMatch(),
+    endMatch,
+    startMatch,
+  })
 
   function handleFrameInput() {
     if (input.wasPressed('KeyV')) cam.toggleMode()
@@ -391,39 +364,7 @@ async function main() {
       frames = 0
       fpsTimer = 0
     }
-
-    let banner: string | undefined
-    let subtitle: string | undefined
-    let scoreboard: string | undefined
-    const match = getMatch()
-    if (match) {
-      const s = match.state
-      scoreboard = `Round ${s.round}   You ${s.playerRoundWins} – ${s.botRoundWins} Bots   Enemies ${s.botsAlive}/${s.botsTotal}`
-      if (s.phase === 'countdown') {
-        banner = 'Get Ready'
-        subtitle = `Round ${s.round} starts in ${Math.ceil(s.timer)}`
-      } else if (s.banner && s.phase !== 'active') {
-        banner = s.banner
-        subtitle = `You ${s.playerRoundWins} – ${s.botRoundWins} Bots`
-      } else if (!player.alive) {
-        banner = 'You are down'
-      }
-    }
-
-    hud.draw({
-      mode: cam.mode,
-      weaponName: logic.stats.name,
-      ammoMag: logic.ammo[logic.current].mag,
-      ammoReserve: logic.ammo[logic.current].reserve,
-      reloading: logic.state === 'Reloading',
-      fps,
-      ads: cam.adsFactor,
-      health: player.hp,
-      maxHealth: player.maxHp,
-      banner,
-      subtitle,
-      scoreboard,
-    }, dt)
+    drawHudFrame({ hud, cam, logic, player }, fps, getMatch(), dt)
   }
 
   function frame(now: number) {

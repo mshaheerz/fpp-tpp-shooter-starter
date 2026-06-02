@@ -7,6 +7,7 @@ import type { NavGrid } from '../ai/NavGrid'
 import type { DamageSystem } from '../ai/DamageSystem'
 import { Enemy } from '../ai/Enemy'
 import { dlog } from '../debug/log'
+import { spawnRegisteredEnemy } from '../setup/enemyLifecycle'
 
 export type MatchPhase = 'countdown' | 'active' | 'roundEnd' | 'matchEnd'
 
@@ -112,11 +113,15 @@ export class TdmMatch {
     // Spawn bots away from the player.
     for (let i = 0; i < this.cfg.bots; i++) {
       const spawn = this.pickBotSpawn(nav, player.position)
-      const e = new Enemy(this.deps.physics, this.deps.pool, spawn)
-      this.deps.scene.add(e.rig.object)
-      this.damage.register(e)
-      this.damage.registerCollider(e.colliderHandle, e)
-      e.onDeath = (dead) => this.damage.unregisterCollider(dead.colliderHandle)
+      const e = spawnRegisteredEnemy(
+        {
+          physics: this.deps.physics,
+          scene: this.deps.scene,
+          pool: this.deps.pool,
+          damage: this.damage,
+        },
+        spawn,
+      )
       this.enemies.push(e)
     }
 

@@ -9,6 +9,7 @@ import type { WeaponStats } from '../weapon/WeaponData'
 import type { GLSLParticleSystem } from '../particle/GLSLParticleSystem'
 import type { ImpactParticle } from '../particle/ImpactParticle'
 import type { SpriteFxSystem } from '../particle/SpriteFxSystem'
+import { playSpatialWeaponSound, spawnMuzzleFlash } from './muzzleFx'
 
 const _hitPoint = new Vector3()
 const _hitNormal = new Vector3()
@@ -105,23 +106,18 @@ export function createWeaponHitHandlers(deps: WeaponHitHandlerDeps) {
     onMuzzle(muzzle: Vector3, shotDir: Vector3, stats?: WeaponStats) {
       try {
         const id = stats?.id ?? 'ak47'
-        deps.audio.play(id, {
-          position: { x: muzzle.x, y: muzzle.y, z: muzzle.z },
-          volume: 0.9,
-          rate: 1 + (Math.random() - 0.5) * 0.06,
-        })
+        playSpatialWeaponSound(deps.audio, id, muzzle, 0.9, 0.06)
       } catch (e) {
         console.warn('[audio] play failed', e)
       }
 
-      deps.flashSprites?.spawn(muzzle, {
+      spawnMuzzleFlash(deps.flashSprites, muzzle, shotDir, {
         count: 1,
         life: [0.025, 0.045],
         speed: [0.03, 0.12],
         size: [0.14, 0.22],
         grow: 1.2,
         spread: 0.1,
-        dir: shotDir,
         opacity: 0.55,
         gravity: 0,
         drag: 7.0,
