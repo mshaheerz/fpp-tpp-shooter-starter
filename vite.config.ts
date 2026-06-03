@@ -1,18 +1,28 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  base: './',
+  base: "./",
   build: {
-    target: 'es2022',
+    target: "es2022",
     sourcemap: false,
+    chunkSizeWarningLimit: 2100,
     rollupOptions: {
       output: {
-        manualChunks: {
-          three: ['three'],
-          rapier: ['@dimforge/rapier3d-compat']
-        }
+        manualChunks(id) {
+          if (id.includes("three")) {
+            return "three";
+          }
+
+          if (id.includes("@dimforge/rapier3d-compat")) {
+            return "rapier";
+          }
+        },
+        codeSplitting: true
       }
     }
   },
-  server: { port: 5173, open: true }
-})
+  server: {
+    port: 5173,
+    open: true
+  }
+});

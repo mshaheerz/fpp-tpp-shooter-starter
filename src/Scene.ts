@@ -17,6 +17,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import RAPIER from '@dimforge/rapier3d-compat'
 import type { PhysicsSystem } from './PhysicsSystem'
+import { loadMap } from './maps'
 
 /**
  * The visual scene: lights, sky, fog, and the loaded map.
@@ -277,7 +278,7 @@ export class Scene {
    * Callers should fall back to `addProceduralGround()` on false.
    */
   async loadMapById(id: string, physics: PhysicsSystem): Promise<boolean> {
-    const mod = await import('./maps').then((m) => m.MAPS.find((mm) => mm.id === id))
+    const mod = await loadMap(id)
     if (!mod) {
       console.warn('[map] unknown id', id)
       return false

@@ -1,4 +1,4 @@
-import { MAPS, type MapDefinition } from './maps'
+import { MAPS, type MapMeta } from './maps'
 import { clamp } from './common/math'
 
 export type GameMode = 'roam' | 'tdm'
@@ -39,7 +39,7 @@ export class MapMenu {
   }
 
   /** Build a card per registered map (free-roam quick start). */
-  private render(maps: MapDefinition[]) {
+  private render(maps: MapMeta[]) {
     this.grid.innerHTML = ''
     for (const m of maps) {
       const card = document.createElement('div')
