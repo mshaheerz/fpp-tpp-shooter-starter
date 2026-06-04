@@ -61,6 +61,9 @@ export class CharacterPool {
     for (const [name, clip] of this.assets.clips) animator.addClip(name, clip)
     bindRifleLocomotion(animator)
     animator.setLocomotion('idle')
+    // Force an immediate update on the mixer so the rig starts in the idle pose
+    // instead of T-pose for the first frame.
+    animator.update(0)
 
     return {
       object,

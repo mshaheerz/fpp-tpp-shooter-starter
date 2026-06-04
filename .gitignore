@@ -6,3 +6,4 @@ dist
 
 # stale TS incremental build cache
 *.tsbuildinfo
+/reference

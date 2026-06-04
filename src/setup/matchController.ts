@@ -17,9 +17,7 @@ export interface MatchControllerDeps {
   damage: DamageSystem
   getNav: () => NavGrid
   setNav: (nav: NavGrid) => void
-  hasLineOfSight: (from: Vector3, to: Vector3) => boolean
   onEnemyFire: (muzzle: Vector3, dir: Vector3) => void
-  playerFiredNow: () => boolean
   getCurrentMapId: () => string
   loadMap: (id: string) => Promise<void>
   buildNav: () => NavGrid
@@ -38,9 +36,7 @@ export function createMatchController(deps: MatchControllerDeps) {
         player: deps.player,
         damage: deps.damage,
         getNav: deps.getNav,
-        hasLineOfSight: deps.hasLineOfSight,
         onEnemyFire: deps.onEnemyFire,
-        playerFiredNow: deps.playerFiredNow,
       },
       cfg,
     )

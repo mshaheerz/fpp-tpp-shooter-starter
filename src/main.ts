@@ -231,6 +231,7 @@ async function main() {
     audio,
     muzzleFx,
     getFlashSprites: () => flashSprites,
+    playerBody: player.body,
   })
   const matchController = createMatchController({
     physics,
@@ -243,9 +244,7 @@ async function main() {
     setNav: (nextNav) => {
       nav = nextNav
     },
-    hasLineOfSight: losClear,
     onEnemyFire: enemyFireFx,
-    playerFiredNow: () => input.lmb && logic.state === 'Idle',
     getCurrentMapId: () => currentMapId,
     loadMap,
     buildNav,
@@ -293,7 +292,6 @@ async function main() {
         match.update(FIXED_DT)
       } else if (enemies.length) {
         // Free-roam dev bots (no match): patrol + react to the player.
-        const playerFiredNow = input.lmb && logic.state === 'Idle'
         for (const e of enemies) {
           if (e.alive) {
             e.think(
@@ -301,8 +299,6 @@ async function main() {
                 nav,
                 target: player,
                 targetPos: player.position,
-                targetFiredNow: playerFiredNow,
-                hasLineOfSight: losClear,
                 dealDamage: (dmg) => damage.applyDamage(player, dmg, e.team),
                 onFire: (muzzle, dir) => enemyFireFx(muzzle, dir),
               },

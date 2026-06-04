@@ -1,4 +1,5 @@
 import { Vector3 } from 'three'
+import type RAPIER from '@dimforge/rapier3d-compat'
 import type { PhysicsSystem } from '../PhysicsSystem'
 import type AudioManager from '../audio/AudioManager'
 import type { GLSLParticleSystem } from '../particle/GLSLParticleSystem'
@@ -13,6 +14,9 @@ export interface EnemyCombatDeps {
   audio: AudioManager
   muzzleFx: GLSLParticleSystem
   getFlashSprites: () => SpriteFxSystem | null
+  /** The player's rigid body – excluded from the LoS raycast so the enemy's
+   *  sight-line doesn't self-intersect the player's own capsule. */
+  playerBody?: RAPIER.RigidBody
 }
 
 export function createEnemyCombatHelpers(deps: EnemyCombatDeps) {
@@ -26,6 +30,7 @@ export function createEnemyCombatHelpers(deps: EnemyCombatDeps) {
         { x: from.x, y: from.y, z: from.z },
         { x: _losDir.x, y: _losDir.y, z: _losDir.z },
         dist - 0.4,
+        deps.playerBody, // exclude the player's own capsule from LoS ray
       )
       return !hit
     },

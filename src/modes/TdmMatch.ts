@@ -40,12 +40,8 @@ export interface TdmDeps {
   damage: DamageSystem
   /** Current nav grid (matches the active map). */
   getNav: () => NavGrid
-  /** LoS test shared with the rest of the game. */
-  hasLineOfSight: (from: Vector3, to: Vector3) => boolean
   /** Enemy gunfire FX. */
   onEnemyFire: (muzzle: Vector3, dir: Vector3) => void
-  /** True if the player fired this tick (for enemy hearing). */
-  playerFiredNow: () => boolean
 }
 
 const COUNTDOWN_TIME = 3
@@ -235,7 +231,6 @@ export class TdmMatch {
   private tickCombat(dt: number) {
     const player = this.deps.player
     const nav = this.deps.getNav()
-    const playerFired = this.deps.playerFiredNow()
     for (const e of this.enemies) {
       if (e.alive) {
         const prevState = e.aiState
@@ -244,8 +239,6 @@ export class TdmMatch {
             nav,
             target: player,
             targetPos: player.position,
-            targetFiredNow: playerFired,
-            hasLineOfSight: this.deps.hasLineOfSight,
             dealDamage: (dmg) => {
               dlog(`[TDM] Enemy ${e.id} dealt ${dmg} damage to player`)
               this.damage.applyDamage(player, dmg, e.team)
