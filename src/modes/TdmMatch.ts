@@ -50,8 +50,21 @@ export interface TdmDeps {
 
 const COUNTDOWN_TIME = 3
 const ROUND_END_TIME = 3.5
-const PLAYER_SPAWN = new Vector3(0, 3, 12)
 const _v = new Vector3()
+
+// Per-map spawn points (safer locations away from buildings)
+const PLAYER_SPAWNS: Record<string, Vector3> = {
+  shootRange: new Vector3(-8, 1, 0), // west side clear area
+  suburbanStreet: new Vector3(0, 1, 0), // center of road
+  industrialYard: new Vector3(0, 1, 0), // central yard
+  ghostCity: new Vector3(0, 1, 0),
+  deathmatch1: new Vector3(0, 1, 0),
+  deathmatch2: new Vector3(0, 1, 0),
+}
+
+function getPlayerSpawn(mapId: string): Vector3 {
+  return PLAYER_SPAWNS[mapId] ?? new Vector3(0, 1, 0)
+}
 
 /**
  * Team Deathmatch orchestrator. Round-based, NO respawn within a round: when one
@@ -67,6 +80,7 @@ export class TdmMatch {
   private readonly damage: DamageSystem
   private enemies: Enemy[] = []
   private cfg: TdmConfig
+  private mapId: string = 'shootRange'
 
   phase: MatchPhase = 'countdown'
   round = 1
@@ -78,11 +92,12 @@ export class TdmMatch {
   /** Fired when the match is fully decided; caller returns to the menu. */
   onMatchOver?: (playerWon: boolean) => void
 
-  constructor(private deps: TdmDeps, cfg: TdmConfig) {
+  constructor(private deps: TdmDeps, cfg: TdmConfig, mapId?: string) {
     this.cfg = cfg
     this.damage = deps.damage
     // Player is already registered by main; ensure team is correct.
     deps.player.team = 'blue'
+    if (mapId) this.mapId = mapId
     this.startRound()
   }
 
@@ -106,8 +121,12 @@ export class TdmMatch {
     const nav = this.deps.getNav()
     const player = this.deps.player
 
-    // Respawn the player.
-    const pSpawn = nav.nearestWalkable(PLAYER_SPAWN, 10, _v) ?? PLAYER_SPAWN
+    // Respawn the player at a safe location away from obstacles.
+    const targetSpawn = getPlayerSpawn(this.mapId)
+    let pSpawn = nav.nearestWalkable(targetSpawn, 20, _v) // search 20m radius
+    if (!pSpawn) pSpawn = nav.nearestWalkable(targetSpawn, 50, _v) // expand search if needed
+    if (!pSpawn) pSpawn = nav.randomWalkable() // last resort: any walkable point
+    if (!pSpawn) pSpawn = targetSpawn // final fallback
     player.respawn(_v.set(pSpawn.x, pSpawn.y + 1.5, pSpawn.z))
 
     // Spawn bots away from the player.
@@ -131,16 +150,18 @@ export class TdmMatch {
   }
 
   private pickBotSpawn(nav: NavGrid, playerPos: Vector3): Vector3 {
-    for (let tries = 0; tries < 100; tries++) {
+    // Try to spawn at least 14m away from the player for a fair fight
+    for (let tries = 0; tries < 200; tries++) {
       const p = nav.randomWalkable()
       if (!p) break
       if (p.distanceTo(playerPos) > 14) {
         p.y += 1.5
-        dlog(`[TDM] spawn: ${tries} tries, dist=${p.distanceTo(playerPos).toFixed(1)}m`)
+        dlog(`[TDM] bot spawn: tries=${tries}, dist=${p.distanceTo(playerPos).toFixed(1)}m`)
         return p
       }
     }
-    // Fallback
+    // Fallback: spawn at any walkable point at least 8m away
+    dlog(`[TDM] bot spawn: using fallback (couldn't find point 14m away)`)
     for (let tries = 0; tries < 50; tries++) {
       const p = nav.randomWalkable()
       if (!p) break
@@ -149,8 +170,14 @@ export class TdmMatch {
         return p
       }
     }
-    const fallback = new Vector3(-playerPos.x * 0.8, playerPos.y + 2, -playerPos.z * 0.8)
-    return fallback
+    // Last resort: just use any random walkable point
+    const p = nav.randomWalkable()
+    if (p) {
+      p.y += 1.5
+      return p
+    }
+    // Emergency fallback
+    return new Vector3(-playerPos.x * 0.8, playerPos.y + 2, -playerPos.z * 0.8)
   }
 
   private clearEnemies() {

@@ -17,6 +17,7 @@ import PlayerDebugger from './debug/PlayerDebugger'
 import { MapMenu } from './MapMenu'
 import { DamageSystem } from './ai/DamageSystem'
 import { CharacterPool } from './ai/CharacterPool'
+import { preloadEnemyWeapon } from './ai/EnemyWeapon'
 import { Enemy } from './ai/Enemy'
 import { NavGrid } from './ai/NavGrid'
 import type { TdmConfig } from './modes/TdmMatch'
@@ -123,6 +124,8 @@ async function main() {
   const enemyPool = new CharacterPool()
   if (characterManifest) await enemyPool.init(characterManifest as AnimationManifest)
   else await enemyPool.init({ base: '', animations: {} })
+  // Preload the shared enemy rifle GLB so spawns get the real model, not the box.
+  await preloadEnemyWeapon()
 
   // Navigation grid, rebuilt whenever a map loads (samples the current static
   // colliders). `?nav` overlays the blocked cells for debugging.

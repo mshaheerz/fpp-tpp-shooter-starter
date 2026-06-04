@@ -1,12 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat'
-import {
-  Vector3,
-  Object3D,
-  Mesh,
-  BoxGeometry,
-  MeshStandardMaterial,
-  MathUtils,
-} from 'three'
+import { Vector3, Object3D } from 'three'
 import type { PhysicsSystem } from '../PhysicsSystem'
 import type { CharacterRig, CharacterPool } from './CharacterPool'
 import type { Combatant, Team } from './DamageSystem'
@@ -14,30 +7,33 @@ import type { NavGrid } from './NavGrid'
 import { dlog } from '../debug/log'
 import { wrapAngle } from '../common/math'
 import { RUN_SPEED_THRESHOLD, MOVE_SPEED_THRESHOLD } from '../character/locomotionConstants'
-
-// Enemy capsule matches the player's default size so hit detection + ground
-// behavior feel consistent.
-const ENEMY_RADIUS = 0.36
-const ENEMY_HALF_HEIGHT = 0.55
-const ENEMY_FULL_HALF = ENEMY_HALF_HEIGHT + ENEMY_RADIUS // center→feet
-const ENEMY_MAX_HP = 100
-
-// ── Perception / combat tuning (fair-but-dangerous defaults) ──────────────────
-const VISION_RANGE = 32 // metres the enemy can see
-const VISION_FOV = MathUtils.degToRad(110) // full cone angle
-const HEARING_RANGE = 22 // gunfire within this radius alerts the enemy
-const ATTACK_RANGE = 24 // starts shooting inside this distance with LoS
-const ATTACK_STOP_RANGE = 9 // closes to roughly this distance, then holds
-const REACTION_TIME = 0.35 // delay between first seeing the player and first shot
-const FIRE_INTERVAL = 0.18 // seconds between shots while attacking
-const BURST_LEN = 4 // shots per burst
-const BURST_PAUSE = 0.7 // pause between bursts
-const AIM_ERROR_BASE = 0.09 // radians of spread when first acquiring
-const AIM_ERROR_SETTLED = 0.025 // radians once aim has settled
-const AIM_SETTLE_TIME = 1.2 // seconds to go from base→settled error
-const ENEMY_DAMAGE = 9 // per hit (low; bursts add up, leaves counterplay)
-const SEARCH_DURATION = 5 // seconds to investigate last-known before giving up
-const REPATH_INTERVAL = 0.4 // how often to recompute a chase path
+import { attachEnemyGun } from './EnemyWeapon'
+import { computeSight, isInTerritory } from './enemyPerception'
+import { findCoverPoint } from './enemyCover'
+import {
+  ENEMY_RADIUS,
+  ENEMY_HALF_HEIGHT,
+  ENEMY_FULL_HALF,
+  ENEMY_MAX_HP,
+  HEARING_RANGE,
+  ATTACK_RANGE,
+  ATTACK_STOP_RANGE,
+  REACTION_TIME,
+  FIRE_INTERVAL,
+  BURST_LEN,
+  BURST_PAUSE,
+  AIM_ERROR_BASE,
+  AIM_ERROR_SETTLED,
+  AIM_SETTLE_TIME,
+  ENEMY_DAMAGE,
+  SEARCH_DURATION,
+  REPATH_INTERVAL,
+  COVER_REEVAL_INTERVAL,
+  COVER_ARRIVE_DIST,
+  PEEK_STEP,
+  DAMAGE_AGGRO_DURATION,
+  distXZ,
+} from './enemyConstants'
 
 export type EnemyAiState = 'patrol' | 'chase' | 'attack' | 'search' | 'dead'
 
@@ -58,22 +54,26 @@ export interface EnemyContext {
   onFire: (muzzle: Vector3, dir: Vector3) => void
 }
 
+// Per-tick scratch vectors (module-local; never aliased across the call tree).
 const _v = new Vector3()
 const _muzzle = new Vector3()
 const _eye = new Vector3()
 const _tEye = new Vector3()
 const _aimDir = new Vector3()
+const _peek = new Vector3()
+const _patrol = new Vector3()
+const _toTarget = new Vector3()
 
 let _enemySeq = 0
 
 /**
- * An AI combatant: a Rapier capsule + a cloned Mixamo rig + a simple weapon.
+ * An AI combatant: a Rapier capsule + a cloned Mixamo rig + a rifle.
  *
- * Step 3 scope: physics capsule, rig follows it, registered with the
- * DamageSystem so the player can shoot it, plays a death reaction. The AI
- * (perception / navigation / firing) is layered on in a later step via
- * `think()` — for now `update()` just keeps the visual synced and runs the
- * animator.
+ * This class is the **state container + thin orchestration**. The heavy logic is
+ * split into focused modules: tuning in `enemyConstants`, sensing in
+ * `enemyPerception`, cover search in `enemyCover`, and the weapon model in
+ * `EnemyWeapon`. `think()` runs perception → state machine → behavior each fixed
+ * step (call BEFORE `update()`, which syncs the visual + animation).
  */
 export class Enemy implements Combatant {
   readonly id: string
@@ -91,15 +91,12 @@ export class Enemy implements Combatant {
   readonly position = new Vector3()
   private yaw = 0
   aiState: EnemyAiState = 'patrol'
-  /** Seconds the death reaction has been playing (for cleanup timing). */
   private deadTimer = 0
 
-  // Patrol/path-follow state (shared by patrol + chase).
+  // Path-follow state (shared by patrol + chase + cover approach).
   private path: Vector3[] = []
   private pathIndex = 0
-  /** Cooldown before recomputing a patrol path (s). */
   private repathTimer = 0
-  /** Movement speed while patrolling (walk) and chasing (run). */
   patrolSpeed = 1.6
   chaseSpeed = 4.2
 
@@ -111,6 +108,18 @@ export class Enemy implements Combatant {
   private burstShotsLeft = BURST_LEN
   private searchTimer = 0
   private firedThisTick = false
+  /** Seconds of forced aggression remaining after being shot (engage regardless
+   *  of range/territory). Set by takeDamage, decays in think. */
+  private aggroTimer = 0
+
+  // Territory (guard zone). Center defaults to spawn; set via setTerritory().
+  private territoryCenter = new Vector3()
+  private territoryRadius = 0
+
+  // Cover (peek & shoot).
+  private coverPoint = new Vector3()
+  private hasCover = false
+  private coverTimer = 0
 
   onDeath?: (e: Enemy) => void
 
@@ -133,10 +142,17 @@ export class Enemy implements Combatant {
     this.position.copy(spawn)
 
     this.rig = pool.spawnRig()
-    this.muzzle = buildGun(this.rig.rightHand)
+    this.muzzle = attachEnemyGun(this.rig.rightHand)
+    this.territoryCenter.copy(spawn) // default zone center
   }
 
-  /** Rapier collider handle — registered with the DamageSystem by the match. */
+  /** Define the circular guard zone this enemy patrols and defends. The player
+   *  entering this circle "attracts" the enemy even without line of sight. */
+  setTerritory(center: Vector3, radius: number) {
+    this.territoryCenter.copy(center)
+    this.territoryRadius = Math.max(0, radius)
+  }
+
   get colliderHandle(): number {
     return this.collider.handle
   }
@@ -161,6 +177,14 @@ export class Enemy implements Combatant {
       this.die()
       return true
     }
+    // Getting shot — even from out of range or behind — makes the enemy commit:
+    // it now knows roughly where the player is and engages seriously. think()
+    // reads `aggroTimer` to force chase/attack regardless of range or territory.
+    this.aggroTimer = DAMAGE_AGGRO_DURATION
+    if (this.aiState === 'patrol' || this.aiState === 'search') {
+      this.aiState = 'chase'
+      this.repathTimer = 0
+    }
     return false
   }
 
@@ -169,14 +193,11 @@ export class Enemy implements Combatant {
     this.alive = false
     this.aiState = 'dead'
     this.deadTimer = 0
-    // Freeze physics immediately and completely - no lingering velocity
     try {
       this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
       this.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
       this.collider.setEnabled(false)
     } catch {}
-    // Play a death animation that holds its final (collapsed) frame. Fall back
-    // through available clips so the corpse never snaps back to an idle pose.
     const a = this.rig.animator
     const deathClip = ['death', 'dying', 'falling_to_landing'].find((n) => a.hasClip(n))
     if (deathClip) a.playDeath(deathClip)
@@ -184,21 +205,25 @@ export class Enemy implements Combatant {
     this.onDeath?.(this)
   }
 
-  /** Aim the body toward a yaw (radians). Used by the AI when attacking. */
+  // ── Low-level movement primitives ───────────────────────────────────────────
+
+  /** Aim the body toward a yaw (radians). */
   faceYaw(targetYaw: number, dt: number, rate = 10) {
-    const delta = wrapAngle(targetYaw - this.yaw)
-    this.yaw += delta * Math.min(1, rate * dt)
+    this.yaw += wrapAngle(targetYaw - this.yaw) * Math.min(1, rate * dt)
   }
 
-  /** Drive the capsule horizontally toward a world point at `speed` m/s. The AI
-   *  calls this each tick with the next nav node; gravity stays on. */
+  /** Turn to face a world point (XZ). */
+  private facePoint(point: Vector3, dt: number, rate = 12) {
+    this.faceYaw(Math.atan2(point.x - this.position.x, point.z - this.position.z), dt, rate)
+  }
+
+  /** Drive the capsule horizontally toward a world point at `speed` m/s. */
   moveToward(target: Vector3, speed: number) {
     const v = this.body.linvel()
     _v.set(target.x - this.position.x, 0, target.z - this.position.z)
     const dist = _v.length()
     if (dist > 0.001) {
       _v.multiplyScalar(speed / dist)
-      // Face the travel direction.
       this.yaw = Math.atan2(_v.x, _v.z)
     } else {
       _v.set(0, 0, 0)
@@ -206,28 +231,21 @@ export class Enemy implements Combatant {
     this.body.setLinvel({ x: _v.x, y: v.y, z: _v.z }, true)
   }
 
-  /** Stop horizontal movement (e.g. when attacking in place). */
+  /** Stop horizontal movement (keep vertical for gravity). */
   halt() {
     const v = this.body.linvel()
     this.body.setLinvel({ x: 0, y: v.y, z: 0 }, true)
   }
 
-  /** Replace the current path with a route to `dest` (world). Clears it if no
-   *  route exists. Returns true if a path was found. */
+  /** Replace the current path with a route to `dest`. Returns true if found. */
   setPathTo(nav: NavGrid, dest: Vector3): boolean {
     const route = nav.findPath(this.position, dest)
-    if (!route || route.length === 0) {
-      this.path = []
-      this.pathIndex = 0
-      return false
-    }
-    this.path = route
+    this.path = route ?? []
     this.pathIndex = 0
-    return true
+    return this.path.length > 0
   }
 
-  /** Follow the current path at `speed`. Returns true while still travelling,
-   *  false once the final node is reached (or there's no path). */
+  /** Follow the current path at `speed`. Returns true while still travelling. */
   followPath(speed: number): boolean {
     if (this.pathIndex >= this.path.length) {
       this.halt()
@@ -247,60 +265,87 @@ export class Enemy implements Combatant {
     return true
   }
 
-  /**
-   * Idle patrol: wander between random walkable nav points. Re-paths when the
-   * current route is exhausted or every few seconds if stuck. Standalone driver
-   * used by the dev `?bot` spawn and as the fallback state in the full AI.
-   */
+  /** Re-path toward `dest` at most every REPATH_INTERVAL, then follow at `speed`. */
+  private chaseTo(nav: NavGrid, dest: Vector3, speed: number, dt: number) {
+    this.repathTimer -= dt
+    if (this.repathTimer <= 0) {
+      this.setPathTo(nav, dest)
+      this.repathTimer = REPATH_INTERVAL
+    }
+    this.followPath(speed)
+  }
+
+  // ── Patrol ────────────────────────────────────────────────────────────────
+
+  /** Idle wander. Inside a territory it stays near the zone; otherwise roams. */
   patrol(nav: NavGrid, dt: number) {
     if (this.aiState === 'dead') return
     this.repathTimer -= dt
     const travelling = this.followPath(this.patrolSpeed)
     if (!travelling || this.repathTimer <= 0) {
-      const dest = nav.randomWalkable()
+      const dest = this.pickPatrolDest(nav)
       if (dest) this.setPathTo(nav, dest)
       this.repathTimer = 4 + Math.random() * 3
     }
   }
 
-  /**
-   * AI tick: perception → state machine → movement/firing. Call once per fixed
-   * step BEFORE `update()` (which syncs the visual + animation). No-op when dead.
-   */
+  private pickPatrolDest(nav: NavGrid): Vector3 | null {
+    if (this.territoryRadius <= 0) return nav.randomWalkable()
+    const angle = Math.random() * Math.PI * 2
+    const r = Math.sqrt(Math.random()) * this.territoryRadius // uniform in disc
+    _patrol.set(
+      this.territoryCenter.x + Math.cos(angle) * r,
+      this.territoryCenter.y,
+      this.territoryCenter.z + Math.sin(angle) * r,
+    )
+    return nav.nearestWalkable(_patrol, 6) ?? nav.randomWalkable()
+  }
+
+  // ── Main AI tick ────────────────────────────────────────────────────────────
+
   think(ctx: EnemyContext, dt: number) {
-    if (this.aiState === 'dead') {
-      // Dead enemies should not think or move at all
-      return
-    }
+    if (this.aiState === 'dead') return
     this.firedThisTick = false
     if (this.fireCooldown > 0) this.fireCooldown -= dt
+    if (this.aggroTimer > 0) this.aggroTimer -= dt
 
     this.getEyePosition(_eye)
-    _tEye.copy(ctx.targetPos).setY(ctx.targetPos.y + 0.5) // aim ~chest
+    _tEye.copy(ctx.targetPos).setY(ctx.targetPos.y + 0.5)
+    const toTarget = _toTarget.set(ctx.targetPos.x - this.position.x, 0, ctx.targetPos.z - this.position.z)
 
-    // ── Perception ────────────────────────────────────────────────────────────
-    const toTarget = _v.set(ctx.targetPos.x - this.position.x, 0, ctx.targetPos.z - this.position.z)
-    const dist = toTarget.length()
-    let canSee = false
-    if (ctx.target.alive && dist <= VISION_RANGE) {
-      // FOV check (skip the cone when very close — peripheral/awareness).
-      const facing = _aimDir.set(Math.sin(this.yaw), 0, Math.cos(this.yaw))
-      const cosAngle = dist > 0.001 ? facing.dot(toTarget) / dist : 1
-      const inFov = dist < 3 || cosAngle >= Math.cos(VISION_FOV / 2)
-      if (inFov && ctx.hasLineOfSight(_eye, _tEye)) {
-        canSee = true
-        // DEBUG: print when vision acquired
-        if (this.alertTimer < 0.1) {
-          dlog(`[Enemy] ${this.id} can see target at distance ${dist.toFixed(1)}m, FOV: ${inFov}`)
-        }
-      }
-    }
-    // Hearing: the player's gunfire gives away their position within range.
-    if (!canSee && ctx.target.alive && ctx.targetFiredNow && dist <= HEARING_RANGE) {
-      dlog(`[Enemy] ${this.id} heard gunfire at distance ${dist.toFixed(1)}m`)
+    const { canSee, dist } = computeSight(ctx, _eye, _tEye, this.position, this.yaw, toTarget)
+
+    this.updatePerception(ctx, canSee, dist, dt)
+    this.updateState(canSee, dist)
+    this.runBehavior(ctx, dt, dist, toTarget, canSee)
+  }
+
+  /** Fold sight/hearing/territory/aggro into last-known + alert memory. */
+  private updatePerception(ctx: EnemyContext, canSee: boolean, dist: number, dt: number) {
+    const alive = ctx.target.alive
+
+    // Hearing: gunfire within range reveals the player's position.
+    if (!canSee && alive && ctx.targetFiredNow && dist <= HEARING_RANGE) {
       this.lastKnownTarget.copy(ctx.targetPos)
       this.hasLastKnown = true
-      if (this.aiState === 'patrol') this.aiState = 'search', (this.searchTimer = SEARCH_DURATION)
+      if (this.aiState === 'patrol') {
+        this.aiState = 'search'
+        this.searchTimer = SEARCH_DURATION
+      }
+    }
+
+    // Territory attraction OR being-shot aggro: pull the enemy onto the player
+    // even without line of sight. Both refresh last-known to the live position.
+    const attracted =
+      alive &&
+      (this.aggroTimer > 0 || isInTerritory(ctx.targetPos, this.territoryCenter, this.territoryRadius))
+    if (!canSee && attracted) {
+      this.lastKnownTarget.copy(ctx.targetPos)
+      this.hasLastKnown = true
+      if (this.aiState === 'patrol') {
+        this.aiState = 'chase'
+        this.repathTimer = 0
+      }
     }
 
     if (canSee) {
@@ -308,82 +353,81 @@ export class Enemy implements Combatant {
       this.hasLastKnown = true
       this.alertTimer += dt
     } else if (this.alertTimer > 0) {
-      // Brief memory so a flicker of cover doesn't reset reaction instantly.
       this.alertTimer = Math.max(0, this.alertTimer - dt * 0.5)
     }
+  }
 
-    // ── State transitions ──────────────────────────────────────────────────────
+  /** State transitions. Aggro keeps the enemy committed even with no sight. */
+  private updateState(canSee: boolean, dist: number) {
+    const committed = this.aggroTimer > 0
     switch (this.aiState) {
       case 'patrol':
-        if (canSee) this.aiState = 'chase'
+        if (canSee) {
+          this.aiState = 'chase'
+          console.log(`[Enemy] ${this.id} patrol→chase (see player at ${dist.toFixed(1)}m)`)
+          dlog(`[Enemy] ${this.id} patrol→chase (see player at ${dist.toFixed(1)}m)`)
+        }
         break
       case 'chase':
-        if (canSee && dist <= ATTACK_RANGE) this.aiState = 'attack'
-        else if (!canSee && !this.hasLastKnown) this.aiState = 'patrol'
+        if (canSee && dist <= ATTACK_RANGE) {
+          this.aiState = 'attack'
+          console.log(`[Enemy] ${this.id} chase→attack (within ${dist.toFixed(1)}m, ATTACK_RANGE=${ATTACK_RANGE})`)
+          dlog(`[Enemy] ${this.id} chase→attack (within ${dist.toFixed(1)}m)`)
+        } else if (!canSee && !this.hasLastKnown && !committed) this.aiState = 'patrol'
         break
       case 'attack':
         if (!canSee) {
-          this.aiState = 'search'
-          this.searchTimer = SEARCH_DURATION
+          // Ducking behind cover loses LoS on purpose — only bail once alert
+          // memory has fully decayed and we're not still committed by aggro.
+          if (this.alertTimer <= 0 && !committed) {
+            this.aiState = 'search'
+            this.searchTimer = SEARCH_DURATION
+            this.hasCover = false
+          }
         } else if (dist > ATTACK_RANGE) {
           this.aiState = 'chase'
+          this.hasCover = false
         }
         break
       case 'search':
         if (canSee) this.aiState = dist <= ATTACK_RANGE ? 'attack' : 'chase'
         break
     }
+  }
 
-    // ── State behavior ─────────────────────────────────────────────────────────
+  /** Drive movement/firing for the current state. */
+  private runBehavior(
+    ctx: EnemyContext,
+    dt: number,
+    dist: number,
+    toTarget: Vector3,
+    canSee: boolean,
+  ) {
     switch (this.aiState) {
       case 'patrol':
         this.alertTimer = 0
+        this.hasCover = false
         this.patrol(ctx.nav, dt)
         break
-
-      case 'chase': {
-        this.repathTimer -= dt
-        if (this.repathTimer <= 0) {
-          this.setPathTo(ctx.nav, this.hasLastKnown ? this.lastKnownTarget : ctx.targetPos)
-          this.repathTimer = REPATH_INTERVAL
-        }
-        this.followPath(this.chaseSpeed)
-        break
-      }
-
-      case 'attack': {
-        // Hold at a stand-off distance: back-pedal if too close, advance if far.
-        if (dist > ATTACK_STOP_RANGE + 1.5) {
-          this.repathTimer -= dt
-          if (this.repathTimer <= 0) {
-            this.setPathTo(ctx.nav, ctx.targetPos)
-            this.repathTimer = REPATH_INTERVAL
-          }
-          this.followPath(this.chaseSpeed)
-        } else {
+      case 'chase':
+        // Close the gap, but only until within shooting range WITH line of sight —
+        // then hold so the enemy fights from range instead of running into you.
+        if (canSee && dist <= ATTACK_STOP_RANGE) {
           this.path = []
           this.halt()
-        }
-        // Always face the target while attacking.
-        const targetYaw = Math.atan2(toTarget.x, toTarget.z)
-        this.faceYaw(targetYaw, dt, 12)
-        // Fire once the reaction delay has elapsed.
-        if (this.alertTimer >= REACTION_TIME) {
-          dlog(`[Enemy] ${this.id} firing! alertTimer=${this.alertTimer.toFixed(2)}, dist=${dist.toFixed(1)}m`)
-          this.tryFire(ctx, dt, dist)
+          this.facePoint(ctx.targetPos, dt)
+        } else {
+          this.chaseTo(ctx.nav, this.hasLastKnown ? this.lastKnownTarget : ctx.targetPos, this.chaseSpeed, dt)
         }
         break
-      }
-
+      case 'attack':
+        this.attackWithCover(ctx, dt, dist, toTarget, canSee)
+        break
       case 'search': {
         this.searchTimer -= dt
-        this.repathTimer -= dt
-        if (this.repathTimer <= 0 && this.hasLastKnown) {
-          this.setPathTo(ctx.nav, this.lastKnownTarget)
-          this.repathTimer = REPATH_INTERVAL
-        }
-        const stillGoing = this.followPath(this.patrolSpeed)
-        if (this.searchTimer <= 0 || (!stillGoing && this.atLastKnown())) {
+        if (this.hasLastKnown) this.chaseTo(ctx.nav, this.lastKnownTarget, this.patrolSpeed, dt)
+        const arrived = this.pathIndex >= this.path.length && this.atLastKnown()
+        if (this.searchTimer <= 0 || arrived) {
           this.hasLastKnown = false
           this.aiState = 'patrol'
         }
@@ -393,29 +437,95 @@ export class Enemy implements Combatant {
   }
 
   private atLastKnown(): boolean {
-    const dx = this.lastKnownTarget.x - this.position.x
-    const dz = this.lastKnownTarget.z - this.position.z
-    return dx * dx + dz * dz < 1.2 * 1.2
+    return distXZ(this.lastKnownTarget, this.position) < 1.2
   }
 
-  /** Fire control: rate-limited bursts with aim error that settles over time. */
-  private tryFire(ctx: EnemyContext, _dt: number, dist: number) {
-    if (this.fireCooldown > 0) return
+  // ── Attack: peek & shoot from cover ───────────────────────────────────────
+
+  /**
+   * Hold a cover spot that breaks the target's line of sight, duck there between
+   * bursts, and lean out (PEEK_STEP) to fire. Falls back to a ranged stand-off
+   * when no cover is reachable, so the enemy never freezes — and never charges
+   * into melee, because it only advances while too far to shoot.
+   */
+  private attackWithCover(
+    ctx: EnemyContext,
+    dt: number,
+    dist: number,
+    toTarget: Vector3,
+    canSee: boolean,
+  ) {
+    this.coverTimer -= dt
+    if (!this.hasCover || this.coverTimer <= 0) {
+      const spot = findCoverPoint(ctx, this.position)
+      this.hasCover = spot !== null
+      if (spot) {
+        this.coverPoint.copy(spot)
+        this.setPathTo(ctx.nav, this.coverPoint)
+      }
+      this.coverTimer = COVER_REEVAL_INTERVAL
+    }
+
+    const peeking = this.burstShotsLeft > 0
+    if (this.hasCover) {
+      if (distXZ(this.position, this.coverPoint) > COVER_ARRIVE_DIST) {
+        this.followPath(this.chaseSpeed) // still moving to cover
+      } else if (peeking && this.alertTimer >= REACTION_TIME) {
+        // Lean out toward the target to take the shot.
+        const inv = 1 / (dist || 1)
+        _peek.set(
+          this.coverPoint.x + toTarget.x * inv * PEEK_STEP,
+          this.position.y,
+          this.coverPoint.z + toTarget.z * inv * PEEK_STEP,
+        )
+        this.moveToward(_peek, this.patrolSpeed)
+      } else {
+        this.moveToward(this.coverPoint, this.patrolSpeed) // duck back
+      }
+    } else {
+      // No cover: hold ground at shooting range (never push into the player).
+      this.path = []
+      this.halt()
+    }
+
+    this.facePoint(canSee ? ctx.targetPos : this.lastKnownTarget, dt)
+
+    if (canSee && this.alertTimer >= REACTION_TIME) {
+      console.log(
+        `[Enemy] ${this.id} trying to fire: cooldown=${this.fireCooldown.toFixed(2)}, burstLeft=${this.burstShotsLeft}, alertTimer=${this.alertTimer.toFixed(2)}`
+      )
+      dlog(
+        `[Enemy] ${this.id} trying to fire: cooldown=${this.fireCooldown.toFixed(2)}, burstLeft=${this.burstShotsLeft}, alertTimer=${this.alertTimer.toFixed(2)}`
+      )
+      this.tryFire(ctx, dist)
+    }
+  }
+
+  /** Rate-limited bursts with aim error that settles over time. */
+  private tryFire(ctx: EnemyContext, dist: number) {
+    console.log(`[tryFire] ${this.id}: checking conditions - cooldown=${this.fireCooldown.toFixed(3)}, burstLeft=${this.burstShotsLeft}`)
+    if (this.fireCooldown > 0) {
+      console.log(`[tryFire] ${this.id}: on cooldown, skipping`)
+      return
+    }
     if (this.burstShotsLeft <= 0) {
+      console.log(`[tryFire] ${this.id}: burst over, setting up new burst`)
       this.burstShotsLeft = BURST_LEN
       this.fireCooldown = BURST_PAUSE
       return
     }
 
-    // Aim from muzzle toward the target chest, with error that tightens as the
-    // enemy "settles" (alertTimer grows).
     const muzzle = this.getMuzzleWorld(_muzzle)
+    if (!muzzle || !Number.isFinite(muzzle.x)) {
+      console.error(`[tryFire] ${this.id}: ERROR: invalid muzzle position`, muzzle)
+      dlog(`[Enemy] ${this.id} ERROR: invalid muzzle position`, muzzle)
+      return
+    }
     _tEye.copy(ctx.targetPos).setY(ctx.targetPos.y + 0.5)
     _aimDir.set(_tEye.x - muzzle.x, _tEye.y - muzzle.y, _tEye.z - muzzle.z).normalize()
 
     const settle = Math.min(1, this.alertTimer / AIM_SETTLE_TIME)
     const err = AIM_ERROR_BASE + (AIM_ERROR_SETTLED - AIM_ERROR_BASE) * settle
-    // Random small cone offset.
     _aimDir.x += (Math.random() - 0.5) * err
     _aimDir.y += (Math.random() - 0.5) * err
     _aimDir.z += (Math.random() - 0.5) * err
@@ -424,39 +534,29 @@ export class Enemy implements Combatant {
     ctx.onFire(muzzle, _aimDir)
     this.firedThisTick = true
 
-    // Hit resolution: a forgiving hit chance scaled by distance + settle, so it
-    // feels like aimed fire without a second physics raycast per enemy/shot.
+    // Forgiving hit chance scaled by distance + settle (no second raycast).
     const range01 = Math.min(1, dist / ATTACK_RANGE)
     const hitChance = (0.85 - 0.45 * range01) * (0.6 + 0.4 * settle)
-    if (Math.random() < hitChance) {
-      dlog(`[Enemy] ${this.id} hit! distance=${dist.toFixed(1)}m, settle=${settle.toFixed(2)}, chance=${hitChance.toFixed(2)}`)
-      ctx.dealDamage(ENEMY_DAMAGE)
-    }
+    if (Math.random() < hitChance) ctx.dealDamage(ENEMY_DAMAGE)
 
     this.burstShotsLeft--
     this.fireCooldown = FIRE_INTERVAL
-    // Fire overlay on the rig if available.
     const a = this.rig.animator
     if (a.hasClip('firing_rifle')) a.playOverlay('firing_rifle', false, 1.4)
   }
 
-  /** Did the enemy fire this tick? (for the match to drive shared FX/sound.) */
   get didFire(): boolean {
     return this.firedThisTick
   }
 
-  /**
-   * Per-frame sync + animation. Keeps the rig glued to the capsule and the
-   * locomotion blend tree fed with the current speed.
-   */
+  // ── Per-frame visual sync ─────────────────────────────────────────────────
+
   update(dt: number) {
     const t = this.body.translation()
     this.position.set(t.x, t.y, t.z)
 
     if (this.aiState === 'dead') {
       this.deadTimer += dt
-      // Sink the corpse slowly so it reads as "down". Also freeze velocity every frame
-      // to make absolutely sure dead enemies don't move.
       try {
         this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
         this.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
@@ -466,11 +566,9 @@ export class Enemy implements Combatant {
       return
     }
 
-    // Place feet at the capsule bottom (same formula as ThirdPersonCharacter).
     this.rig.object.position.set(t.x, t.y - ENEMY_FULL_HALF + this.rig.feetOffset, t.z)
     this.rig.object.rotation.y = this.yaw
 
-    // Locomotion from horizontal speed.
     const v = this.body.linvel()
     const speed = Math.hypot(v.x, v.z)
     const a = this.rig.animator
@@ -481,7 +579,6 @@ export class Enemy implements Combatant {
     a.update(dt)
   }
 
-  /** Remove physics + scene presence entirely (round teardown). */
   dispose() {
     try {
       this.physics.world.removeRigidBody(this.body)
@@ -489,30 +586,7 @@ export class Enemy implements Combatant {
     this.rig.object.removeFromParent()
   }
 
-  /** Current facing yaw (radians). */
   get facingYaw(): number {
     return this.yaw
   }
-}
-
-/** Build a simple primitive rifle parented to the hand; returns the muzzle node. */
-function buildGun(hand: Object3D): Object3D {
-  const gun = new Object3D()
-  const bodyMat = new MeshStandardMaterial({ color: 0x222428, roughness: 0.5, metalness: 0.3 })
-  const barrel = new Mesh(new BoxGeometry(0.05, 0.05, 0.5), bodyMat)
-  barrel.position.set(0, 0, 0.25)
-  barrel.castShadow = true
-  gun.add(barrel)
-  const stock = new Mesh(new BoxGeometry(0.06, 0.12, 0.18), bodyMat)
-  stock.position.set(0, -0.04, -0.05)
-  gun.add(stock)
-  // Orient roughly forward out of the hand.
-  gun.rotation.set(0, MathUtils.degToRad(90), 0)
-  gun.position.set(0, 0, 0)
-  hand.add(gun)
-
-  const muzzle = new Object3D()
-  muzzle.position.set(0, 0, 0.52)
-  gun.add(muzzle)
-  return muzzle
 }
