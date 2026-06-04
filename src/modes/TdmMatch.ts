@@ -7,7 +7,7 @@ import type { NavGrid } from '../ai/NavGrid'
 import type { DamageSystem } from '../ai/DamageSystem'
 import { Enemy } from '../ai/Enemy'
 import { dlog } from '../debug/log'
-import { spawnRegisteredEnemy } from '../setup/enemyLifecycle'
+import { spawnRegisteredEnemy, isSpawnSafe } from '../setup/enemyLifecycle'
 
 export type MatchPhase = 'countdown' | 'active' | 'roundEnd' | 'matchEnd'
 
@@ -36,11 +36,8 @@ export interface TdmDeps {
   scene: Scene
   pool: CharacterPool
   player: Player
-  /** Shared damage router (the same one main's onHit uses for player shots). */
   damage: DamageSystem
-  /** Current nav grid (matches the active map). */
   getNav: () => NavGrid
-  /** Enemy gunfire FX. */
   onEnemyFire: (muzzle: Vector3, dir: Vector3) => void
 }
 
@@ -127,7 +124,7 @@ export class TdmMatch {
 
     // Spawn bots away from the player.
     for (let i = 0; i < this.cfg.bots; i++) {
-      const spawn = this.pickBotSpawn(nav, player.position)
+      const spawn = this.pickBotSpawn(nav, player.position, this.enemies.map(e => e.position))
       const e = spawnRegisteredEnemy(
         {
           physics: this.deps.physics,
@@ -145,35 +142,45 @@ export class TdmMatch {
     this.banner = `Round ${this.round}`
   }
 
-  private pickBotSpawn(nav: NavGrid, playerPos: Vector3): Vector3 {
-    // Try to spawn at least 14m away from the player for a fair fight
-    for (let tries = 0; tries < 200; tries++) {
+  private pickBotSpawn(nav: NavGrid, playerPos: Vector3, existingSpawns: Vector3[]): Vector3 {
+    const physics = this.deps.physics
+    const MIN_PLAYER_DIST = 12
+    const MIN_SPAWN_DIST = 3
+    const MAX_ATTEMPTS = 300
+
+    for (let tries = 0; tries < MAX_ATTEMPTS; tries++) {
       const p = nav.randomWalkable()
-      if (!p) break
-      if (p.distanceTo(playerPos) > 14) {
-        p.y += 1.5
+      if (!p) continue
+      p.y = 0
+      // Must be far enough from the player
+      if (p.distanceTo(playerPos) < MIN_PLAYER_DIST) continue
+      // Must not overlap existing spawns
+      let tooClose = false
+      for (const s of existingSpawns) {
+        if (p.distanceTo(s) < MIN_SPAWN_DIST) { tooClose = true; break }
+      }
+      if (tooClose) continue
+      // Must be on safe ground
+      p.y = 1
+      if (isSpawnSafe(physics, p)) {
         dlog(`[TDM] bot spawn: tries=${tries}, dist=${p.distanceTo(playerPos).toFixed(1)}m`)
         return p
       }
     }
-    // Fallback: spawn at any walkable point at least 8m away
-    dlog(`[TDM] bot spawn: using fallback (couldn't find point 14m away)`)
-    for (let tries = 0; tries < 50; tries++) {
-      const p = nav.randomWalkable()
-      if (!p) break
-      if (p.distanceTo(playerPos) > 8) {
-        p.y += 1.5
-        return p
+    // Fallback: spread spawns around the player at angles
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2 + Math.random() * 0.3
+      const r = 14 + Math.random() * 6
+      const x = playerPos.x + Math.cos(angle) * r
+      const z = playerPos.z + Math.sin(angle) * r
+      const p = nav.nearestWalkable(new Vector3(x, 0, z), 10)
+      if (p) {
+        p.y = 1
+        if (isSpawnSafe(physics, p)) return p
       }
     }
-    // Last resort: just use any random walkable point
-    const p = nav.randomWalkable()
-    if (p) {
-      p.y += 1.5
-      return p
-    }
-    // Emergency fallback
-    return new Vector3(-playerPos.x * 0.8, playerPos.y + 2, -playerPos.z * 0.8)
+    // Emergency fallback — spawn high above ground to avoid geometry
+    return new Vector3(0, 5, 0)
   }
 
   private clearEnemies() {

@@ -32,6 +32,7 @@ import { createMatchController } from './setup/matchController'
 import { setupDevBots } from './setup/devBots'
 import { createMapLoader, createMapMenuReopener, pickInitialMap, startRequestedMatch } from './setup/mapFlow'
 import { drawHudFrame } from './setup/hudState'
+import { LightingDebugger } from './debug/LightingDebugger'
 
 const FIXED_DT = 1 / 60
 const _eyeTmp = new Vector3()
@@ -69,16 +70,12 @@ async function main() {
     cam.three.updateProjectionMatrix()
   })
 
-  // Map selection: show the menu and wait for the user to pick a map. The
-  // menu is HTML-based (see index.html + MapMenu.ts) so it runs before the
-  // game loop starts. M reopens it in-game to swap maps without reloading.
   const mapMenu = new MapMenu()
   let currentMapId = 'shootRange'
   const loadMap = createMapLoader(scene, physics, loadingUi, (id) => {
     currentMapId = id
   })
 
-  // Hide the loading overlay so the menu is visible, then wait for a pick.
   hideLoading()
   const { pendingMatch } = await pickInitialMap(mapMenu, loadMap)
 
@@ -86,14 +83,10 @@ async function main() {
   scene.add(player.debugMesh)
   player.debugMesh.visible = false
 
-  // Central health/hit router. The player is a Combatant; its capsule collider
-  // is registered so enemy bullets that hit it route here. Enemies register
-  // themselves when a TDM match spawns them.
   const damage = new DamageSystem()
   damage.register(player)
   damage.registerCollider(player.colliderHandle, player)
 
-  // Player debugger UI (F7) — only when ?debug or localStorage.debug is set.
   if (isDebug()) new PlayerDebugger(player)
 
   const character = new ThirdPersonCharacter()
@@ -107,108 +100,73 @@ async function main() {
     characterManifest = manifest
     await character.load(manifest)
     dlog('[character] Mixamo manifest loaded')
-    // Sync the climb FSM duration to the actual ledge_climb_up clip length so
-    // the teleport-to-top happens exactly when the pull-up animation finishes
-    // — otherwise short fixed timeouts cut the clip off mid-pose.
     const climbClip = character.animator.getClip('ledge_climb_up')
     if (climbClip) player.setClimbDuration(climbClip.duration)
   } catch {
-    dlog(
-      '[character] using placeholder humanoid — drop ybot.glb + animation GLBs into public/assets/character/ and add manifest.json',
-    )
+    dlog('[character] using placeholder humanoid')
   }
 
-  // Enemy character pool — loads the Mixamo assets once and clones per bot.
-  // Initialized with the same manifest as the player (falls back to placeholder
-  // rigs when assets are absent). Used by Team Deathmatch.
   const enemyPool = new CharacterPool()
   if (characterManifest) await enemyPool.init(characterManifest as AnimationManifest)
   else await enemyPool.init({ base: '', animations: {} })
-  // Preload the shared enemy rifle GLB so spawns get the real model, not the box.
   await preloadEnemyWeapon()
 
-  // Navigation grid, rebuilt whenever a map loads (samples the current static
-  // colliders). `?nav` overlays the blocked cells for debugging.
   const params = new URLSearchParams(location.search)
-  const showNav = params.has('nav')
   let navDebug: import('three').Object3D | null = null
+  let navDbgEnabled = params.has('nav')
   function buildNav(): NavGrid {
-    if (navDebug) {
-      scene.remove(navDebug)
-      navDebug = null
-    }
+    if (navDebug) { scene.remove(navDebug); navDebug = null }
     const grid = new NavGrid(physics, { halfExtent: 60, cell: 0.9 })
-    if (showNav) {
-      navDebug = grid.buildDebugObject()
-      scene.add(navDebug)
-    }
+    if (navDbgEnabled) { navDebug = grid.buildDebugObject(); scene.add(navDebug) }
     return grid
   }
   let nav: NavGrid = buildNav()
 
-  // Dev free-roam bots: `?bot=N` drops N bots that just patrol the nav grid
-  // (no match logic) — handy for testing pathfinding/hit detection in isolation.
+  // Lighting debugger — toggled from mod menu (N key)
+  let lightingDbg: LightingDebugger | null = null
+
+  // Register mod menu callbacks (called by index.html onclick handlers)
+  ;(window as any)._modCallbacks = {
+    light: () => {
+      if (lightingDbg) {
+        lightingDbg.destroy()
+        lightingDbg = null
+      } else {
+        lightingDbg = new LightingDebugger(scene, cam)
+      }
+      return !!lightingDbg
+    },
+  }
+
   const enemies: Enemy[] = setupDevBots({ physics, scene, enemyPool, damage, nav, params })
 
-  // FPSMesh kept around solely for its recoil spring (camera kick); its
-  // placeholder geometry is hidden — we use the Mixamo character's real arms
-  // for both views now (head bone is hidden in FPP so you can see).
   const fpsMesh = new FPSMesh()
   fpsMesh.object.visible = false
   cam.three.add(fpsMesh.object)
 
   const weapons = new WeaponRenderer()
-  // Weapon transform debugger (F8) — only when ?debug or localStorage.debug is set.
   if (isDebug()) new WeaponTransformDebugger(weapons)
 
   setLoading('Loading textures...')
   const { smokeSprites, flashSprites } = await createSpriteFx(scene)
-
-  // Particle systems live at scene root so they aren't culled with the FPP arms.
   const particles = createParticles(scene)
   const { muzzleFx, smokeFx, impactFx, decals, shells } = particles
-
   const { audio } = await createAudio()
 
   let hud!: HUD
   const weaponHitHandlers = createWeaponHitHandlers({
-    damage,
-    player,
-    scene,
-    smokeSprites,
-    flashSprites,
-    smokeFx,
-    impactFx,
-    getHud: () => hud,
-    audio,
+    damage, player, scene, smokeSprites, flashSprites, smokeFx, impactFx,
+    getHud: () => hud, audio,
   })
-
-  const shooter = new WeaponShooter(
-    physics,
-    weapons,
-    muzzleFx,
-    impactFx,
-    decals,
-    shells,
-    weaponHitHandlers.onHit,
-    weaponHitHandlers.onMuzzle,
-  )
+  const shooter = new WeaponShooter(physics, weapons, muzzleFx, impactFx, decals, shells, weaponHitHandlers.onHit, weaponHitHandlers.onMuzzle)
 
   async function equip(id: WeaponId) {
     const stats = WEAPONS[id]
-    // Weapon always rides the Mixamo right-hand bone now — same parent in both
-    // views. The only thing that changes on V toggle is camera position + head
-    // visibility on the character.
     await weapons.attachTo(id, character.rightHand, stats.tppOffset)
-    // Swap the character's locomotion animation set so the stance matches the
-    // weapon (pistol hold vs rifle hold vs knife stance).
     character.useAnimationSet(id === 'pistol' ? 'pistol' : id === 'knife' ? 'knife' : 'rifle')
   }
 
   const applyMode = () => {
-    // Character is ALWAYS visible — in FPP the camera is at eye height inside
-    // the head, so we hide just the head bone (otherwise we'd see the inside
-    // of our own skull or have the face clip in front of the lens).
     character.object.visible = true
     character.setHeadVisible(cam.mode === 'TPP')
   }
@@ -219,38 +177,17 @@ async function main() {
   const logic = new WeaponLogicSystem(input, cam, weapons, shooter, fpsMesh, character, player.body, equip)
   hud = new HUD(renderer.hudCtx, renderer.hudCanvas)
 
-  // Flash the red vignette whenever the player takes damage.
   player.onDamaged = () => hud.flashDamage()
 
-  // ── Enemy combat helpers (used by Enemy.think via the loop) ──────────────────
-  // Line-of-sight: cast from `from` toward `to`; clear if nothing solid is hit
-  // before (almost) reaching the target. The target is the player capsule, so a
-  // hit at ~target distance means an unobstructed view.
   const { losClear, enemyFireFx } = createEnemyCombatHelpers({
-    physics,
-    audio,
-    muzzleFx,
-    getFlashSprites: () => flashSprites,
-    playerBody: player.body,
+    physics, audio, muzzleFx, getFlashSprites: () => flashSprites, playerBody: player.body,
   })
   const matchController = createMatchController({
-    physics,
-    scene,
-    mapMenu,
-    player,
-    enemyPool,
-    damage,
-    getNav: () => nav,
-    setNav: (nextNav) => {
-      nav = nextNav
-    },
-    onEnemyFire: enemyFireFx,
-    getCurrentMapId: () => currentMapId,
-    loadMap,
-    buildNav,
+    physics, scene, mapMenu, player, enemyPool, damage,
+    getNav: () => nav, setNav: (nextNav) => { nav = nextNav },
+    onEnemyFire: enemyFireFx, getCurrentMapId: () => currentMapId, loadMap, buildNav,
   })
   const { startMatch, endMatch, getMatch } = matchController
-
   startRequestedMatch(pendingMatch, params, startMatch)
 
   let last = performance.now()
@@ -260,17 +197,9 @@ async function main() {
   let fpsTimer = 0
   let fps = 0
   const reopenMapMenu = createMapMenuReopener({
-    mapMenu,
-    getCurrentMapId: () => currentMapId,
-    loadMap,
-    player,
-    rebuildNav: buildNav,
-    setNav: (nextNav) => {
-      nav = nextNav
-    },
-    hasActiveMatch: () => !!getMatch(),
-    endMatch,
-    startMatch,
+    mapMenu, getCurrentMapId: () => currentMapId, loadMap, player,
+    rebuildNav: buildNav, setNav: (nextNav) => { nav = nextNav },
+    hasActiveMatch: () => !!getMatch(), endMatch, startMatch,
   })
 
   function handleFrameInput() {
@@ -291,19 +220,13 @@ async function main() {
       if (match) {
         match.update(FIXED_DT)
       } else if (enemies.length) {
-        // Free-roam dev bots (no match): patrol + react to the player.
         for (const e of enemies) {
           if (e.alive) {
-            e.think(
-              {
-                nav,
-                target: player,
-                targetPos: player.position,
-                dealDamage: (dmg) => damage.applyDamage(player, dmg, e.team),
-                onFire: (muzzle, dir) => enemyFireFx(muzzle, dir),
-              },
-              FIXED_DT,
-            )
+            e.think({
+              nav, target: player, targetPos: player.position,
+              dealDamage: (dmg) => damage.applyDamage(player, dmg, e.team),
+              onFire: (muzzle, dir) => enemyFireFx(muzzle, dir),
+            }, FIXED_DT)
           }
           e.update(FIXED_DT)
         }
@@ -336,10 +259,8 @@ async function main() {
     if (player.climbJustStarted && character.animator.hasClip('ledge_climb_up')) {
       character.animator.playOverlay('ledge_climb_up', false)
     }
-    const ledgeInfo =
-      player.mode === 'hanging' || player.mode === 'climbing'
-        ? { mode: player.mode, yaw: player.ledgeYaw, shimmy: player.ledgeShimmyDir }
-        : undefined
+    const ledgeInfo = player.mode === 'hanging' || player.mode === 'climbing'
+      ? { mode: player.mode, yaw: player.ledgeYaw, shimmy: player.ledgeShimmyDir } : undefined
     character.update(player.position, player.velocity, player.grounded, cam.yaw, dt, ledgeInfo, player.capsuleBottomOffset)
     if (!ledgeInfo) character.applySpineAim(cam.pitch)
     fpsMesh.update(dt)
@@ -358,25 +279,19 @@ async function main() {
   function drawHud(dt: number) {
     frames++
     fpsTimer += dt
-    if (fpsTimer >= 0.5) {
-      fps = Math.round(frames / fpsTimer)
-      frames = 0
-      fpsTimer = 0
-    }
+    if (fpsTimer >= 0.5) { fps = Math.round(frames / fpsTimer); frames = 0; fpsTimer = 0 }
     drawHudFrame({ hud, cam, logic, player }, fps, getMatch(), dt)
   }
 
   function frame(now: number) {
     const dt = Math.min(0.1, (now - last) / 1000)
     last = now
-
     handleFrameInput()
     stepFixedUpdate(dt)
     handleLanding()
     updateAnimationAndFx(dt)
     syncCamera(dt)
     drawHud(dt)
-
     input.endFrame()
     requestAnimationFrame(frame)
   }

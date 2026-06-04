@@ -91,6 +91,29 @@
         background: rgba(255,255,255,0.1); border-radius: 4px;
         padding: 1px 6px; font: 11px/1 ui-monospace, monospace; color: #d6d9de;
       }
+
+      #mod-menu {
+        position: fixed; top: 50px; right: 20px; z-index: 99999;
+        background: rgba(10, 12, 16, 0.92); border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 12px; padding: 18px 20px; width: 230px;
+        font: 13px/1.5 system-ui, sans-serif; color: #d0d4da;
+        display: none; pointer-events: auto;
+      }
+      #mod-menu h3 {
+        margin: 0 0 12px; font-size: 15px; font-weight: 600; color: #fff;
+        letter-spacing: 0.04em; text-transform: uppercase;
+      }
+      .mod-toggle {
+        display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer; user-select: none;
+      }
+      .mod-toggle:hover { color: #fff; }
+      .mod-indicator {
+        display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+        background: #555; border: 1px solid #888; flex-shrink: 0; transition: background 0.2s;
+      }
+      .mod-indicator.active { background: #2ecc71; }
+      #mod-menu hr { border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 12px 0; }
+      #mod-menu .mod-help { font-size: 11px; color: #888; }
     </style>
   </head>
   <body>
@@ -109,7 +132,34 @@
         <div class="map-menu-footer">Press <kbd>M</kbd> in game to reopen this menu</div>
       </div>
     </div>
-    <div id="lock-hint">Click to play — WASD / Space / Shift, Ctrl crouch, R reload, 1/2/3 swap, V toggle FPP/TPP, M change map, F7 debugger</div>
+
+    <!-- Mod Menu -->
+    <div id="mod-menu">
+      <h3>Mod Menu</h3>
+      <div class="mod-toggle" onclick="window.modToggle('light')">
+        <span class="mod-indicator" id="mod-light"></span> Lighting Debugger
+      </div>
+      <hr>
+      <div class="mod-help">Press <kbd>N</kbd> to toggle · Lighting: sun position, intensity, color, ambient, shadows, presets</div>
+    </div>
+
+    <div id="lock-hint">Click to play — WASD / Space / Shift, Ctrl crouch, R reload, 1/2/3 swap, V toggle FPP/TPP, M change map, F7 debugger, N mod menu</div>
     <script type="module" src="/src/main.ts"></script>
+    <script>
+      document.addEventListener('keydown', (e) => {
+        if (e.code === 'KeyN') {
+          const menu = document.getElementById('mod-menu');
+          if (!menu) return;
+          menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+      });
+      window.modToggle = (key) => {
+        if (window._modCallbacks && window._modCallbacks[key]) {
+          const active = window._modCallbacks[key]();
+          const el = document.getElementById('mod-' + key);
+          if (el) el.classList.toggle('active', active);
+        }
+      };
+    </script>
   </body>
 </html>
