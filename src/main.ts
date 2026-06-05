@@ -121,6 +121,11 @@ async function main() {
     return grid
   }
   let nav: NavGrid = buildNav()
+  // Rapier's query pipeline (used by isSpawnSafe's raycast/overlap) is only
+  // synchronized during world.step(). Step once now so the first round's bot
+  // spawns validate against the just-loaded map colliders instead of an empty
+  // world — otherwise every spawn check fails and all bots stack on one fallback.
+  physics.step(0)
 
   // Lighting debugger — toggled from mod menu (N key)
   let lightingDbg: LightingDebugger | null = null

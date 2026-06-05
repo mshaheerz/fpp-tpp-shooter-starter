@@ -36,6 +36,7 @@ export function createMatchController(deps: MatchControllerDeps) {
         player: deps.player,
         damage: deps.damage,
         getNav: deps.getNav,
+        getCurrentMapId: deps.getCurrentMapId,
         onEnemyFire: deps.onEnemyFire,
       },
       cfg,

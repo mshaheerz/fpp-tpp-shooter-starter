@@ -38,6 +38,7 @@ export interface TdmDeps {
   player: Player
   damage: DamageSystem
   getNav: () => NavGrid
+  getCurrentMapId: () => string
   onEnemyFire: (muzzle: Vector3, dir: Vector3) => void
 }
 
@@ -90,7 +91,8 @@ export class TdmMatch {
     this.damage = deps.damage
     // Player is already registered by main; ensure team is correct.
     deps.player.team = 'blue'
-    if (mapId) this.mapId = mapId
+    // Resolve the map for per-map spawn points: explicit override, else current.
+    this.mapId = mapId ?? deps.getCurrentMapId()
     this.startRound()
   }
 
@@ -179,8 +181,13 @@ export class TdmMatch {
         if (isSpawnSafe(physics, p)) return p
       }
     }
-    // Emergency fallback — spawn high above ground to avoid geometry
-    return new Vector3(0, 5, 0)
+    // Emergency fallback — couldn't validate any point (e.g. physics not yet
+    // queryable). Spread bots around a ring by index so they don't all stack on
+    // one spot; raise them slightly so they settle onto the ground.
+    const n = existingSpawns.length
+    const angle = (n / Math.max(1, this.cfg.bots)) * Math.PI * 2
+    const r = 14
+    return new Vector3(Math.cos(angle) * r, 5, Math.sin(angle) * r)
   }
 
   private clearEnemies() {
