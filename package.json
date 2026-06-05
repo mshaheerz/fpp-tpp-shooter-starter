@@ -8,8 +8,11 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "inspect-glb": "tsx scripts/inspect-glb.ts",
-    "watch-convert": "node scripts/convert-fbx-to-glb.cjs",
-    "convert-once": "node scripts/convert-fbx-to-glb.cjs --once"
+    "convert-fbx": "node scripts/convert-fbx-to-glb.cjs",
+    "convert-fbx:watch": "node scripts/convert-fbx-to-glb.cjs",
+    "convert-fbx:once": "node scripts/convert-fbx-to-glb.cjs --once",
+    "watch-convert": "npm run convert-fbx:watch",
+    "convert-once": "npm run convert-fbx:once"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.14.0",

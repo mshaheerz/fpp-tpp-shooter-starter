@@ -20,8 +20,11 @@ import { CharacterPool } from './ai/CharacterPool'
 import { preloadEnemyWeapon } from './ai/EnemyWeapon'
 import { Enemy } from './ai/Enemy'
 import { NavGrid } from './ai/NavGrid'
-import type { TdmConfig } from './modes/TdmMatch'
-import type { AnimationManifest } from './character/ThirdPersonCharacter'
+import {
+  getCharacterDefinitionForSelection,
+  normalizeCharacterSelection,
+  type CharacterSelection,
+} from './character/characterRegistry'
 import { dlog, isDebug } from './debug/log'
 import { createParticles } from './setup/particles'
 import { createSpriteFx } from './setup/spriteFx'
@@ -83,7 +86,8 @@ async function main() {
   })
 
   hideLoading()
-  const { pendingMatch } = await pickInitialMap(mapMenu, loadMap)
+  const initialSelection = await pickInitialMap(mapMenu, loadMap)
+  let selectedCharacters = initialSelection.characterSelection
 
   const player = new Player(physics)
   scene.add(player.debugMesh)
@@ -97,24 +101,53 @@ async function main() {
 
   const character = new ThirdPersonCharacter()
   scene.add(character.object)
-  let characterManifest: unknown = null
-  try {
-    setLoading('Loading character...')
-    const res = await fetch('./assets/character/manifest.json')
-    if (!res.ok) throw new Error('no manifest')
-    const manifest = await res.json()
-    characterManifest = manifest
-    await character.load(manifest)
-    dlog('[character] Mixamo manifest loaded')
-    const climbClip = character.animator.getClip('ledge_climb_up')
-    if (climbClip) player.setClimbDuration(climbClip.duration)
-  } catch {
-    dlog('[character] using placeholder humanoid')
+  const enemyPool = new CharacterPool()
+  let activePlayerCharacterId: string | null = null
+  let activeEnemyCharacterId: string | null = null
+  let rebindCurrentWeapon: (() => Promise<void>) | null = null
+  let syncCharacterView: (() => void) | null = null
+
+  async function applyCharacterSelection(
+    nextSelection: CharacterSelection,
+    loadingText = 'Loading characters...',
+  ) {
+    const normalized = normalizeCharacterSelection(nextSelection)
+    selectedCharacters = normalized
+
+    const playerDefinition = getCharacterDefinitionForSelection(normalized, 'player')
+    const enemyDefinition = getCharacterDefinitionForSelection(normalized, 'enemy')
+    const needsPlayerReload = activePlayerCharacterId !== playerDefinition.id
+    const needsEnemyReload = activeEnemyCharacterId !== enemyDefinition.id
+    if (!needsPlayerReload && !needsEnemyReload) return
+
+    loadingUi.show(loadingText)
+    try {
+      if (needsPlayerReload) {
+        try {
+          await character.load(playerDefinition)
+          activePlayerCharacterId = playerDefinition.id
+          dlog('[character] loaded player character', playerDefinition.id)
+          const climbClip = character.animator.getClip('ledge_climb_up')
+          if (climbClip) player.setClimbDuration(climbClip.duration)
+        } catch (error) {
+          console.warn('[character] using placeholder humanoid for player', playerDefinition.id, error)
+        }
+      }
+
+      if (needsEnemyReload) {
+        await enemyPool.init(enemyDefinition)
+        activeEnemyCharacterId = enemyDefinition.id
+        dlog('[character] loaded enemy character', enemyDefinition.id)
+      }
+
+      if (rebindCurrentWeapon) await rebindCurrentWeapon()
+      syncCharacterView?.()
+    } finally {
+      loadingUi.hide()
+    }
   }
 
-  const enemyPool = new CharacterPool()
-  if (characterManifest) await enemyPool.init(characterManifest as AnimationManifest)
-  else await enemyPool.init({ base: '', animations: {} })
+  await applyCharacterSelection(selectedCharacters, 'Loading character roster...')
   await preloadEnemyWeapon()
 
   const params = new URLSearchParams(location.search)
@@ -171,16 +204,20 @@ async function main() {
   })
   const shooter = new WeaponShooter(physics, weapons, muzzleFx, impactFx, decals, shells, weaponHitHandlers.onHit, weaponHitHandlers.onMuzzle)
 
+  let currentWeaponId: WeaponId = 'ak47'
   async function equip(id: WeaponId) {
+    currentWeaponId = id
     const stats = WEAPONS[id]
     await weapons.attachTo(id, character.rightHand, stats.tppOffset)
     character.useAnimationSet(id === 'pistol' ? 'pistol' : id === 'knife' ? 'knife' : 'rifle')
   }
+  rebindCurrentWeapon = () => equip(currentWeaponId)
 
   const applyMode = () => {
     character.object.visible = true
     character.setHeadVisible(cam.mode === 'TPP')
   }
+  syncCharacterView = applyMode
   cam.onModeChange = applyMode
   await equip('ak47')
   applyMode()
@@ -197,9 +234,10 @@ async function main() {
     physics, scene, mapMenu, player, enemyPool, damage,
     getNav: () => nav, setNav: (nextNav) => { nav = nextNav },
     onEnemyFire: enemyFireFx, getCurrentMapId: () => currentMapId, loadMap, buildNav,
+    onMenuSelection: (selection) => applyCharacterSelection(selection.characters),
   })
   const { startMatch, endMatch, getMatch } = matchController
-  startRequestedMatch(pendingMatch, params, startMatch)
+  startRequestedMatch(initialSelection.pendingMatch, params, startMatch)
 
   let last = performance.now()
   let prevGrounded = player.grounded
@@ -211,6 +249,7 @@ async function main() {
     mapMenu, getCurrentMapId: () => currentMapId, loadMap, player,
     rebuildNav: buildNav, setNav: (nextNav) => { nav = nextNav },
     hasActiveMatch: () => !!getMatch(), endMatch, startMatch,
+    onSelection: (selection) => applyCharacterSelection(selection.characters),
   })
 
   function handleFrameInput() {

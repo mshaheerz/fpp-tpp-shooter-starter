@@ -1,17 +1,11 @@
 import { Group, Object3D, Vector3, MathUtils, Quaternion, Euler } from 'three'
 import { CharacterAnimator, type LocomotionState } from './CharacterAnimator'
 import { loadCharacterAssets } from './characterAssets'
+import type { CharacterDefinition } from './characterRegistry'
 import { findBoneByAnySuffix, buildPlaceholderHumanoid } from './rigHelpers'
 import { RUN_SPEED_THRESHOLD, MOVE_SPEED_THRESHOLD, YAW_LERP_RATE } from './locomotionConstants'
 import { bindRifleLocomotionWithExtras } from './locomotionBindings'
 import { wrapAngle } from '../common/math'
-
-export interface AnimationManifest {
-  /** Path to the rigged base mesh GLB ("Y Bot" from Mixamo, WITH SKIN). */
-  base: string
-  /** Map of logical animation name → file path (Mixamo download, WITHOUT SKIN). */
-  animations: Record<string, string>
-}
 
 // Three.js's GLTFLoader replaces ':' with '' in bone names by default, so the
 // Mixamo bones come through as `mixamorigRightHand` / `mixamorigSpine1` etc.
@@ -27,8 +21,8 @@ const _forward = new Vector3()
  * Visual-only TPP character. Follows the physics capsule transform and applies
  * Mixamo animations via `CharacterAnimator`.
  *
- *   - `load(manifest)` loads Y Bot + each animation GLB; the first clip in each
- *     animation file is registered under its logical name.
+ *   - `load(definition)` loads the configured base mesh + animation GLBs; the
+ *     first clip in each animation file is registered under its logical name.
  *   - `update(playerPos, vel, grounded, dt)` copies position, slerps yaw toward
  *     movement direction, picks a locomotion state, and steps the mixer.
  *   - `applySpineAim(pitch)` runs AFTER `mixer.update()` and adds rotation to
@@ -70,11 +64,11 @@ export class ThirdPersonCharacter {
     this.animator = new CharacterAnimator(ph.root)
   }
 
-  async load(manifest: AnimationManifest) {
+  async load(definition: CharacterDefinition) {
     // Shared loader: rescales the Mixamo base to ~1.8 m, strips Hips drift, and
     // synthesizes the additive jump leg-tuck. The enemy CharacterPool uses the
     // exact same helper, so player and bots animate identically.
-    const assets = await loadCharacterAssets(manifest)
+    const assets = await loadCharacterAssets(definition)
     const baseRoot = assets.baseRoot
     this.feetOffset = assets.feetOffset
 

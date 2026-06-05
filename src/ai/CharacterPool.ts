@@ -1,8 +1,8 @@
 import { Object3D } from 'three'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { CharacterAnimator } from '../character/CharacterAnimator'
-import type { AnimationManifest } from '../character/ThirdPersonCharacter'
 import { loadCharacterAssets, type CharacterAssets } from '../character/characterAssets'
+import type { CharacterDefinition } from '../character/characterRegistry'
 import { findBoneByAnySuffix, buildPlaceholderHumanoid } from '../character/rigHelpers'
 import { bindRifleLocomotion } from '../character/locomotionBindings'
 
@@ -31,16 +31,19 @@ export interface CharacterRig {
 export class CharacterPool {
   private assets: CharacterAssets | null = null
   private ready = false
+  private characterId: string | null = null
 
   /** Load shared assets. Safe to call once; later calls are no-ops. Never throws —
    *  on failure the pool produces placeholder rigs. */
-  async init(manifest: AnimationManifest) {
-    if (this.ready) return
+  async init(definition: CharacterDefinition) {
+    if (this.ready && this.characterId === definition.id) return
     try {
-      this.assets = await loadCharacterAssets(manifest)
+      this.assets = await loadCharacterAssets(definition)
+      this.characterId = definition.id
     } catch (e) {
       console.warn('[CharacterPool] using placeholder rigs — no Mixamo assets', e)
       this.assets = null
+      this.characterId = null
     }
     this.ready = true
   }

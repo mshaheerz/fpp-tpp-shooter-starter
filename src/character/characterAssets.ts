@@ -7,7 +7,8 @@ import {
   SkinnedMesh,
 } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import type { AnimationManifest } from './ThirdPersonCharacter'
+import type { CharacterDefinition } from './characterRegistry'
+import { findBoneByAnySuffix } from './rigHelpers'
 
 /**
  * Loaded-once character assets. The skinned base mesh is kept as a TEMPLATE; the
@@ -32,7 +33,7 @@ export interface CharacterAssets {
 const OVERLAY_NAMES = new Set(['firing_rifle', 'reload_rifle', 'aim_idle', 'knife_stab'])
 
 /** Strip/zero Hips position drift the same way ThirdPersonCharacter does. */
-function processClipTracks(name: string, clip: AnimationClip) {
+function processClipTracks(name: string, clip: AnimationClip, bindHipsY: number) {
   const isOverlay = OVERLAY_NAMES.has(name)
   clip.tracks = clip.tracks.filter((track) => {
     if (!track.name.endsWith('.position')) return true
@@ -40,8 +41,10 @@ function processClipTracks(name: string, clip: AnimationClip) {
     if (isOverlay) return false
     if (track.values && track.values.length % 3 === 0) {
       const v = track.values as Float32Array
+      const firstY = v[1] ?? bindHipsY
       for (let i = 0; i < v.length; i += 3) {
         v[i] = 0
+        v[i + 1] = bindHipsY + (v[i + 1] - firstY)
         v[i + 2] = 0
       }
     }
@@ -65,9 +68,9 @@ function buildLegsOnlyAdditive(source: AnimationClip, name: string): AnimationCl
  * clone from. Throws if the base mesh can't be loaded (caller falls back to the
  * placeholder humanoid).
  */
-export async function loadCharacterAssets(manifest: AnimationManifest): Promise<CharacterAssets> {
+export async function loadCharacterAssets(definition: CharacterDefinition): Promise<CharacterAssets> {
   const loader = new GLTFLoader()
-  const baseGltf = await loader.loadAsync(manifest.base)
+  const baseGltf = await loader.loadAsync(definition.base)
   const baseRoot = baseGltf.scene
   baseRoot.traverse((o) => {
     if ((o as Mesh).isMesh) {
@@ -78,20 +81,23 @@ export async function loadCharacterAssets(manifest: AnimationManifest): Promise<
     }
   })
 
-  // Rescale ~180cm → 1.8m.
+  // Normalize differently-authored rigs to the same gameplay height.
   baseRoot.updateMatrixWorld(true)
   const bbox = new Box3().setFromObject(baseRoot)
   const rawHeight = bbox.max.y - bbox.min.y
-  if (rawHeight > 5) {
-    const scale = 1.8 / rawHeight
-    baseRoot.scale.setScalar(scale)
+  if (rawHeight > 0.0001) {
+    const normalizedScale = definition.targetHeight ? definition.targetHeight / rawHeight : 1
+    const scale = normalizedScale * (definition.scaleMultiplier ?? 1)
+    baseRoot.scale.multiplyScalar(scale)
     baseRoot.updateMatrixWorld(true)
     bbox.setFromObject(baseRoot)
   }
-  const feetOffset = -bbox.min.y
+  const feetOffset = -bbox.min.y + (definition.groundOffset ?? 0)
+  const bindHipsY =
+    findBoneByAnySuffix(baseRoot, ['Hips', 'mixamorigHips'])?.position.y ?? 0
 
   const clips = new Map<string, AnimationClip>()
-  const entries = Object.entries(manifest.animations)
+  const entries = Object.entries(definition.animations)
   const loaded = await Promise.all(
     entries.map(async ([name, path]) => {
       try {
@@ -107,7 +113,7 @@ export async function loadCharacterAssets(manifest: AnimationManifest): Promise<
   )
   for (const [name, clip] of loaded) {
     if (!clip) continue
-    processClipTracks(name, clip)
+    processClipTracks(name, clip, bindHipsY)
     clips.set(name, clip)
   }
 

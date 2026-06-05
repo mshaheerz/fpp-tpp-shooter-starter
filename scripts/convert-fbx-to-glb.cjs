@@ -5,10 +5,12 @@ const path = require('path');
 const chokidar = require('chokidar');
 
 const HOME = process.env.HOME || process.env.USERPROFILE || '.';
-const DOWNLOADS = process.env.FBX_WATCH_DIR || path.join(HOME, 'Downloads');
-const OUT_DIR = path.join(process.cwd(), 'public', 'assets', 'kenney', 'converted');
+const DEFAULT_WATCH_DIR = process.env.FBX_WATCH_DIR || path.join(HOME, 'Downloads');
+const DEFAULT_OUT_DIR = path.join(process.cwd(), 'public', 'assets', 'kenney', 'converted');
 
-if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+}
 
 // The `fbx2gltf` npm package ships a native binary (it has no CLI `bin`, so
 // `npx fbx2gltf` fails with "could not determine executable"). Resolve the
@@ -28,9 +30,10 @@ function resolveFbx2gltfBinary() {
 }
 const FBX2GLTF_BIN = resolveFbx2gltfBinary();
 
-function convert(inputFile) {
+function convert(inputFile, explicitOutputFile, outDir) {
   const base = path.basename(inputFile, path.extname(inputFile));
-  const outFile = path.join(OUT_DIR, base + '.glb');
+  const outFile = explicitOutputFile || path.join(outDir, base + '.glb');
+  ensureDir(path.dirname(outFile));
 
   const tryCommands = [];
   if (FBX2GLTF_BIN) tryCommands.push([FBX2GLTF_BIN, ['-b', '-i', inputFile, '-o', outFile]]);
@@ -61,32 +64,85 @@ function convert(inputFile) {
   })(0);
 }
 
-console.log('Watching for .fbx files in', DOWNLOADS);
-
-const watcher = chokidar.watch(path.join(DOWNLOADS, '*.fbx'), {
-  persistent: true,
-  ignoreInitial: false,
-  depth: 0,
-});
-
-watcher.on('add', (file) => {
-  console.log('Detected new FBX:', file);
-  setTimeout(() => convert(file), 1500);
-});
-
 const argv = process.argv.slice(2);
-if (argv.includes('--once')) {
-  watcher.close();
-  const files = fs.readdirSync(DOWNLOADS).filter((f) => f.toLowerCase().endsWith('.fbx'));
-  if (!files.length) {
-    console.log('No .fbx files found in', DOWNLOADS);
-    process.exit(0);
+const options = {
+  once: false,
+  help: false,
+  inputFile: null,
+  outputFile: null,
+  outDir: DEFAULT_OUT_DIR,
+  watchDir: DEFAULT_WATCH_DIR,
+};
+
+for (let i = 0; i < argv.length; i += 1) {
+  const arg = argv[i];
+  if (arg === '--once') {
+    options.once = true;
+  } else if (arg === '--help' || arg === '-h') {
+    options.help = true;
+  } else if (arg === '--out-dir') {
+    options.outDir = path.resolve(argv[i + 1]);
+    i += 1;
+  } else if (arg === '--watch-dir') {
+    options.watchDir = path.resolve(argv[i + 1]);
+    i += 1;
+  } else if (arg === '--output' || arg === '-o') {
+    options.outputFile = path.resolve(argv[i + 1]);
+    i += 1;
+  } else if (!options.inputFile) {
+    options.inputFile = path.resolve(arg);
+  } else if (!options.outputFile) {
+    options.outputFile = path.resolve(arg);
   }
-  const latest = files.map((f) => ({ f, t: fs.statSync(path.join(DOWNLOADS, f)).mtimeMs })).sort((a, b) => b.t - a.t)[0].f;
-  convert(path.join(DOWNLOADS, latest));
 }
 
-if (argv.includes('--help') || argv.includes('-h')) {
-  console.log('\nUsage: node scripts/convert-fbx-to-glb.cjs [--once]');
-  console.log('Set FBX_WATCH_DIR to change the watched folder.');
+ensureDir(options.outDir);
+
+function convertLatestFromWatchDir() {
+  const files = fs.readdirSync(options.watchDir).filter((f) => f.toLowerCase().endsWith('.fbx'));
+  if (!files.length) {
+    console.log('No .fbx files found in', options.watchDir);
+    process.exit(0);
+  }
+  const latest = files
+    .map((f) => ({ f, t: fs.statSync(path.join(options.watchDir, f)).mtimeMs }))
+    .sort((a, b) => b.t - a.t)[0].f;
+  convert(path.join(options.watchDir, latest), options.outputFile, options.outDir);
+}
+
+if (options.help) {
+  console.log('\nUsage:');
+  console.log('  node scripts/convert-fbx-to-glb.cjs ./model.fbx');
+  console.log('  node scripts/convert-fbx-to-glb.cjs ./model.fbx ./public/assets/model.glb');
+  console.log('  node scripts/convert-fbx-to-glb.cjs --once [--watch-dir ./folder]');
+  console.log('  node scripts/convert-fbx-to-glb.cjs [--watch-dir ./folder]');
+  console.log('\nOptions:');
+  console.log('  --once                 Convert the newest .fbx in the watch folder once');
+  console.log('  --watch-dir <dir>      Folder to watch or scan (default: ~/Downloads or FBX_WATCH_DIR)');
+  console.log('  --out-dir <dir>        Output folder for generated .glb files');
+  console.log('  --output, -o <file>    Explicit output .glb path');
+  console.log('\nExamples:');
+  console.log('  npm run convert-fbx -- ./player.fbx');
+  console.log('  npm run convert-fbx -- ./player.fbx ./public/assets/player.glb');
+  console.log('  npm run convert-fbx:once');
+  console.log('  npm run convert-fbx:watch -- --watch-dir ~/Downloads');
+  process.exit(0);
+}
+
+if (options.inputFile) {
+  convert(options.inputFile, options.outputFile, options.outDir);
+} else if (options.once) {
+  convertLatestFromWatchDir();
+} else {
+  console.log('Watching for .fbx files in', options.watchDir);
+  const watcher = chokidar.watch(path.join(options.watchDir, '*.fbx'), {
+    persistent: true,
+    ignoreInitial: false,
+    depth: 0,
+  });
+
+  watcher.on('add', (file) => {
+    console.log('Detected new FBX:', file);
+    setTimeout(() => convert(file, null, options.outDir), 1500);
+  });
 }

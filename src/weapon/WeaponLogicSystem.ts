@@ -94,6 +94,9 @@ export class WeaponLogicSystem {
     if (this.input.wasPressed('KeyR')) this.requestReload()
 
     const isMelee = this.current === 'knife'
+    const bodyVelocity = this.playerBody.linvel()
+    const horizontalSpeed = Math.hypot(bodyVelocity.x, bodyVelocity.z)
+    const canUseFullBodyOverlay = horizontalSpeed < 0.2
 
     // ADS state mirrors RMB — disabled for melee (the knife has nothing to aim).
     const wantAds = !isMelee && this.input.rmb && this.state !== 'Reloading' && this.state !== 'Switching'
@@ -101,7 +104,9 @@ export class WeaponLogicSystem {
 
     // Drive the aim animation. Firing takes priority — when LMB is held the
     // firing overlay is active and we let it own the body; aim resumes after.
-    const shouldAimAnim = wantAds && !this.input.lmb && this.state === 'Idle'
+    // While moving, keep locomotion in control instead of snapping the whole
+    // body into a static aim pose.
+    const shouldAimAnim = wantAds && !this.input.lmb && this.state === 'Idle' && canUseFullBodyOverlay
     if (shouldAimAnim && !this.aimAnimActive) {
       this.character.animator.playOverlay('aim_idle', true)
       this.aimAnimActive = true
@@ -133,9 +138,20 @@ export class WeaponLogicSystem {
       }
       // Keep the firing animation looping while LMB is held (don't restart per bullet).
       // Suppressed for melee — the stab is a one-shot overlay above.
-      if (!isMelee && !this.firingAnimActive && s.magSize > 0 && this.ammo[this.current].mag > 0) {
+      // While moving, keep the locomotion clip active instead of freezing the
+      // lower body in the standing fire pose.
+      if (
+        !isMelee &&
+        canUseFullBodyOverlay &&
+        !this.firingAnimActive &&
+        s.magSize > 0 &&
+        this.ammo[this.current].mag > 0
+      ) {
         this.character.animator.playOverlay('firing_rifle', true)
         this.firingAnimActive = true
+      } else if ((!canUseFullBodyOverlay || isMelee) && this.firingAnimActive) {
+        this.character.animator.stopOverlay('firing_rifle')
+        this.firingAnimActive = false
       }
     } else if (this.firingAnimActive) {
       this.character.animator.stopOverlay('firing_rifle')

@@ -143,22 +143,36 @@
         font-size: 12.5px; color: #b8bdc6; line-height: 1.5;
       }
       #tdm-section {
-        margin-top: 26px; padding: 20px; border-radius: 10px;
+        margin-top: 18px; padding: 20px; border-radius: 10px;
         background: rgba(150,40,40,0.10);
         border: 1px solid rgba(220,90,90,0.28);
       }
+      #character-section {
+        margin-top: 26px; padding: 20px; border-radius: 10px;
+        background: rgba(46,89,160,0.12);
+        border: 1px solid rgba(108,156,230,0.26);
+      }
+      #character-section .tdm-title,
       #tdm-section .tdm-title {
         margin: 0 0 4px; font-size: 17px; font-weight: 600; color: #ffd9d0;
         letter-spacing: 0.04em; text-transform: uppercase;
       }
+      #character-section .tdm-title { color: #d7e8ff; }
+      #character-section .tdm-sub,
       #tdm-section .tdm-sub { font-size: 12.5px; color: #c8b3b0; margin-bottom: 16px; }
+      #character-section .tdm-sub { color: #aec4df; }
+      #character-section .tdm-row,
       #tdm-section .tdm-row {
         display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap;
       }
+      #character-section .tdm-field,
       #tdm-section .tdm-field { display: flex; flex-direction: column; gap: 5px; }
+      #character-section .tdm-field label,
       #tdm-section .tdm-field label {
         font-size: 11px; color: #b8bdc6; text-transform: uppercase; letter-spacing: 0.05em;
       }
+      #character-section select,
+      #character-section input,
       #tdm-section select, #tdm-section input {
         background: #161a20; color: #eef2f6; border: 1px solid #3a4150;
         border-radius: 6px; padding: 7px 9px; font: 13px/1 ui-monospace, monospace;
@@ -224,6 +238,7 @@
       <div class="map-menu-inner">
         <h1>Select Map</h1>
         <div id="map-menu-grid"></div>
+        <div id="character-section"></div>
         <div id="tdm-section"></div>
         <div class="map-menu-footer">Press <kbd>M</kbd> in game to reopen this menu</div>
       </div>

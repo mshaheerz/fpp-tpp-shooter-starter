@@ -1,5 +1,12 @@
 import { MAPS, type MapMeta } from './maps'
 import { clamp } from './common/math'
+import {
+  getCharacterOptions,
+  loadStoredCharacterSelection,
+  normalizeCharacterSelection,
+  saveStoredCharacterSelection,
+  type CharacterSelection,
+} from './character/characterRegistry'
 
 export type GameMode = 'roam' | 'tdm'
 
@@ -7,6 +14,7 @@ export type GameMode = 'roam' | 'tdm'
 export interface MenuSelection {
   mapId: string
   mode: GameMode
+  characters: CharacterSelection
   /** Present only when `mode === 'tdm'`. */
   tdm?: { bots: number; roundsToWin: number }
 }
@@ -23,6 +31,7 @@ export class MapMenu {
   private el: HTMLElement
   private grid: HTMLElement
   private resolver: ((sel: MenuSelection) => void) | null = null
+  private characterSelection = loadStoredCharacterSelection()
   // TDM controls.
   private tdmBots = 4
   private tdmRounds = 2
@@ -35,6 +44,7 @@ export class MapMenu {
     this.el = el
     this.grid = grid
     this.render(MAPS)
+    this.buildCharacterSection()
     this.buildTdmSection()
   }
 
@@ -56,9 +66,62 @@ export class MapMenu {
       desc.textContent = m.description
       card.appendChild(desc)
 
-      card.addEventListener('click', () => this.pick({ mapId: m.id, mode: 'roam' }))
+      card.addEventListener('click', () =>
+        this.pick({ mapId: m.id, mode: 'roam', characters: this.characterSelection }),
+      )
       this.grid.appendChild(card)
     }
+  }
+
+  private buildCharacterSection() {
+    const host = document.getElementById('character-section')
+    if (!host) return
+    host.innerHTML = ''
+
+    const title = document.createElement('h2')
+    title.className = 'tdm-title'
+    title.textContent = 'Characters'
+    host.appendChild(title)
+
+    const sub = document.createElement('div')
+    sub.className = 'tdm-sub'
+    sub.textContent = 'Choose your main character and which rig new enemies use.'
+    host.appendChild(sub)
+
+    const row = document.createElement('div')
+    row.className = 'tdm-row'
+
+    const playerSelect = document.createElement('select')
+    playerSelect.className = 'tdm-select'
+    for (const definition of getCharacterOptions('player')) {
+      const option = document.createElement('option')
+      option.value = definition.id
+      option.textContent = definition.label
+      playerSelect.appendChild(option)
+    }
+    playerSelect.value = this.characterSelection.playerId
+    playerSelect.addEventListener('change', () => {
+      this.updateCharacterSelection({ playerId: playerSelect.value })
+      playerSelect.value = this.characterSelection.playerId
+    })
+    row.appendChild(this.labeled('Player', playerSelect))
+
+    const enemySelect = document.createElement('select')
+    enemySelect.className = 'tdm-select'
+    for (const definition of getCharacterOptions('enemy')) {
+      const option = document.createElement('option')
+      option.value = definition.id
+      option.textContent = definition.label
+      enemySelect.appendChild(option)
+    }
+    enemySelect.value = this.characterSelection.enemyId
+    enemySelect.addEventListener('change', () => {
+      this.updateCharacterSelection({ enemyId: enemySelect.value })
+      enemySelect.value = this.characterSelection.enemyId
+    })
+    row.appendChild(this.labeled('Enemies', enemySelect))
+
+    host.appendChild(row)
   }
 
   /** Build the Team Deathmatch panel under the map grid. */
@@ -127,6 +190,7 @@ export class MapMenu {
       this.pick({
         mapId: this.tdmMapId,
         mode: 'tdm',
+        characters: this.characterSelection,
         tdm: { bots: this.tdmBots, roundsToWin: this.tdmRounds },
       }),
     )
@@ -164,7 +228,16 @@ export class MapMenu {
     this.el.classList.add('hidden')
   }
 
+  private updateCharacterSelection(next: Partial<CharacterSelection>) {
+    this.characterSelection = normalizeCharacterSelection({
+      ...this.characterSelection,
+      ...next,
+    })
+    saveStoredCharacterSelection(this.characterSelection)
+  }
+
   private pick(sel: MenuSelection) {
+    this.updateCharacterSelection(sel.characters)
     this.hide()
     const r = this.resolver
     this.resolver = null

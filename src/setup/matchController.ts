@@ -1,4 +1,5 @@
 import { Vector3 } from 'three'
+import type { MenuSelection } from '../MapMenu'
 import type { MapMenu } from '../MapMenu'
 import type { Player } from '../Player'
 import type { Scene } from '../Scene'
@@ -21,6 +22,7 @@ export interface MatchControllerDeps {
   getCurrentMapId: () => string
   loadMap: (id: string) => Promise<void>
   buildNav: () => NavGrid
+  onMenuSelection?: (selection: MenuSelection) => Promise<void> | void
 }
 
 export function createMatchController(deps: MatchControllerDeps) {
@@ -45,6 +47,7 @@ export function createMatchController(deps: MatchControllerDeps) {
     match.onMatchOver = () => {
       endMatch()
       void deps.mapMenu.show().then(async (selection) => {
+        await deps.onMenuSelection?.(selection)
         if (selection.mapId !== deps.getCurrentMapId()) {
           await deps.loadMap(selection.mapId)
           deps.setNav(deps.buildNav())

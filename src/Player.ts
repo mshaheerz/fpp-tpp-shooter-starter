@@ -258,11 +258,11 @@ export class Player implements Combatant {
     this.moveDir.copy(_wishDir)
 
     const sprinting = input.isDown('ShiftLeft') || input.isDown('ShiftRight')
-    // ADS suppresses sprint and slows base speed (CS-style).
+    // ADS should not change gameplay speed; keep locomotion feel consistent
+    // whether the player is aiming or firing.
     const aiming = (camera as { ads?: boolean }).ads === true
     // Crouching disables sprint too — you can't run while ducked.
-    let wishSpeed = (sprinting && !aiming && !this.crouching ? RUN_SPEED : WALK_SPEED) * (wLen > 0 ? 1 : 0)
-    if (aiming) wishSpeed *= 0.6
+    let wishSpeed = (sprinting && !this.crouching ? RUN_SPEED : WALK_SPEED) * (wLen > 0 ? 1 : 0)
     if (this.crouching) wishSpeed *= CROUCH_SPEED_SCALE
 
     _hVel.set(this.velocity.x, 0, this.velocity.z)

@@ -1,8 +1,9 @@
-import type { MapMenu } from '../MapMenu'
+import type { MapMenu, MenuSelection } from '../MapMenu'
 import type { PhysicsSystem } from '../PhysicsSystem'
 import type { Scene } from '../Scene'
 import type { Player } from '../Player'
 import type { NavGrid } from '../ai/NavGrid'
+import type { CharacterSelection } from '../character/characterRegistry'
 import { dlog } from '../debug/log'
 import type { TdmConfig } from '../modes/TdmMatch'
 
@@ -14,6 +15,7 @@ export interface LoadingUi {
 export interface InitialSelection {
   currentMapId: string
   pendingMatch: TdmConfig | null
+  characterSelection: CharacterSelection
 }
 
 export interface OpenMenuDeps {
@@ -26,6 +28,7 @@ export interface OpenMenuDeps {
   hasActiveMatch: () => boolean
   endMatch: () => void
   startMatch: (cfg: TdmConfig) => void
+  onSelection?: (selection: MenuSelection) => Promise<void> | void
 }
 
 export function createMapLoader(
@@ -54,12 +57,14 @@ export async function pickInitialMap(mapMenu: MapMenu, loadMap: (id: string) => 
   return {
     currentMapId: firstPick.mapId,
     pendingMatch: firstPick.mode === 'tdm' ? firstPick.tdm ?? null : null,
+    characterSelection: firstPick.characters,
   } satisfies InitialSelection
 }
 
 export function createMapMenuReopener(deps: OpenMenuDeps) {
   return async function reopenMapMenu() {
     const selection = await deps.mapMenu.show()
+    await deps.onSelection?.(selection)
     if (selection.mapId === deps.getCurrentMapId() && selection.mode === 'roam') return
 
     if (selection.mapId !== deps.getCurrentMapId()) {
