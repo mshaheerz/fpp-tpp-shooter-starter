@@ -143,6 +143,10 @@ export class ThirdPersonCharacter {
         jump: 'jump',
         fall: has('falling_to_landing') ? 'falling_to_landing' : 'jump',
         land: 'jump',
+        crouchIdle: has('crouch_idle') ? 'crouch_idle' : 'knife_idle',
+        crouchWalk: has('crouch_walk_forward') ? 'crouch_walk_forward' : 'walk_forward',
+        crouchStrafeL: has('crouch_strafe_left') ? 'crouch_strafe_left' : 'strafe_left',
+        crouchStrafeR: has('crouch_strafe_right') ? 'crouch_strafe_right' : 'strafe_right',
         ...ledgeBindings,
       })
       return
@@ -159,6 +163,10 @@ export class ThirdPersonCharacter {
         jump: has('pistol_jump') ? 'pistol_jump' : 'jump',
         fall: has('falling_to_landing') ? 'falling_to_landing' : 'jump',
         land: has('pistol_jump') ? 'pistol_jump' : 'jump',
+        crouchIdle: has('pistol_crouch_idle') ? 'pistol_crouch_idle' : (has('crouch_idle') ? 'crouch_idle' : 'pistol_idle'),
+        crouchWalk: has('crouch_walk_forward') ? 'crouch_walk_forward' : (has('pistol_walk_forward') ? 'pistol_walk_forward' : 'walk_forward'),
+        crouchStrafeL: has('crouch_strafe_left') ? 'crouch_strafe_left' : (has('pistol_strafe_left') ? 'pistol_strafe_left' : 'strafe_left'),
+        crouchStrafeR: has('crouch_strafe_right') ? 'crouch_strafe_right' : (has('pistol_strafe_right') ? 'pistol_strafe_right' : 'strafe_right'),
         ...ledgeBindings,
       })
       return
@@ -174,6 +182,7 @@ export class ThirdPersonCharacter {
     dt: number,
     ledge?: { mode: 'hanging' | 'climbing'; yaw: number; shimmy: -1 | 0 | 1 },
     capsuleBottom = 0.9,
+    crouching = false,
   ) {
     // LEDGE OVERRIDE: when hanging or climbing, the standard yaw-from-velocity
     // and locomotion-from-velocity logic doesn't apply — we want the character
@@ -262,6 +271,18 @@ export class ThirdPersonCharacter {
       // falling gives the visual sense of the jump on its own. This is the
       // same trick most modern FPS games use (Apex, Valorant, etc).
       next = this.lastGroundedState
+    } else if (crouching) {
+      // Crouched: no sprint (CROUCH_SPEED_SCALE caps speed), no crouch-back clip,
+      // so any forward/back movement uses the single crouch-walk. Strafes get
+      // their own left/right crouch clips.
+      if (horizSpeed < MOVE_SPEED_THRESHOLD) {
+        next = 'crouchIdle'
+      } else if (Math.abs(rightSpeed) > Math.abs(fwdSpeed)) {
+        next = rightSpeed > 0 ? 'crouchStrafeR' : 'crouchStrafeL'
+      } else {
+        next = 'crouchWalk'
+      }
+      this.lastGroundedState = next
     } else {
       if (horizSpeed < MOVE_SPEED_THRESHOLD) {
         next = 'idle'

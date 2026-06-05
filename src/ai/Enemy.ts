@@ -79,6 +79,10 @@ export class Enemy implements Combatant {
   private burstShotsLeft = BURST_LEN
   private firedThisTick = false
   private aggroTimer = 0
+  // Keeps the looping firing overlay alive for a short window past the last shot
+  // so rapid bursts don't restart it every shot (which caused locomotion flicker).
+  private fireHoldTimer = 0
+  private firingOverlayOn = false
 
   private territoryCenter = new Vector3()
   private territoryRadius = 0
@@ -144,6 +148,9 @@ export class Enemy implements Combatant {
       this.collider.setEnabled(false)
     } catch {}
     const a = this.rig.animator
+    // Drop any active firing loop so it doesn't fight the death clip.
+    if (this.firingOverlayOn) { a.stopOverlay('firing_rifle'); this.firingOverlayOn = false }
+    this.fireHoldTimer = 0
     const deathClip = ['death', 'dying', 'falling_to_landing'].find((n) => a.hasClip(n))
     if (deathClip) a.playDeath(deathClip)
     this.onDeath?.(this)
@@ -222,6 +229,7 @@ export class Enemy implements Combatant {
     this.firedThisTick = false
     if (this.fireCooldown > 0) this.fireCooldown -= dt
     if (this.aggroTimer > 0) this.aggroTimer -= dt
+    if (this.fireHoldTimer > 0) this.fireHoldTimer -= dt
 
     const dist = distXZ(this.position, ctx.targetPos)
     const playerAlive = ctx.target.alive
@@ -261,20 +269,40 @@ export class Enemy implements Combatant {
         break
       }
     }
+
+    // Start/stop the looping firing overlay based on whether we're shooting.
+    this.syncFiringOverlay()
   }
 
   private applyAnimState(wanted: AnimState) {
-    if (wanted === this.animState && wanted !== 'attackAnim') return
+    if (wanted === this.animState) return
     this.animState = wanted
     const a = this.rig.animator
     switch (wanted) {
       case 'idle': a.setLocomotion('idle'); break
       case 'walk': a.setLocomotion('walk'); break
       case 'run': a.setLocomotion('run'); break
-      case 'attackAnim':
-        a.setLocomotion('idle')
-        if (a.hasClip('firing_rifle')) a.playOverlay('firing_rifle', false, 1.4)
-        break
+      case 'attackAnim': a.setLocomotion('idle'); break
+    }
+  }
+
+  /**
+   * Drive the firing overlay as a single LOOPING action that lives for as long
+   * as the enemy is actively shooting (fireHoldTimer > 0), then stops. Starting
+   * one short one-shot overlay per shot (every FIRE_INTERVAL) made locomotion
+   * weight oscillate 0↔1, which read as a flicker while the enemy ran in. A
+   * loop fades locomotion out once and back once, so the transition is smooth.
+   */
+  private syncFiringOverlay() {
+    const a = this.rig.animator
+    if (!a.hasClip('firing_rifle')) return
+    const shouldFire = this.fireHoldTimer > 0
+    if (shouldFire && !this.firingOverlayOn) {
+      a.playOverlay('firing_rifle', true, 1.4) // loop=true: held while firing
+      this.firingOverlayOn = true
+    } else if (!shouldFire && this.firingOverlayOn) {
+      a.stopOverlay('firing_rifle')
+      this.firingOverlayOn = false
     }
   }
 
@@ -322,8 +350,10 @@ export class Enemy implements Combatant {
 
     this.burstShotsLeft--
     this.fireCooldown = FIRE_INTERVAL
-    const a = this.rig.animator
-    if (a.hasClip('firing_rifle')) a.playOverlay('firing_rifle', false, 1.4)
+    // Keep the looping firing overlay alive a touch past this shot's interval so
+    // back-to-back burst shots don't drop it; it expires during the longer
+    // BURST_PAUSE so the enemy reverts to plain running between bursts.
+    this.fireHoldTimer = FIRE_INTERVAL + 0.15
   }
 
   get didFire(): boolean { return this.firedThisTick }

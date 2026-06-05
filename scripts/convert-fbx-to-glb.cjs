@@ -10,14 +10,33 @@ const OUT_DIR = path.join(process.cwd(), 'public', 'assets', 'kenney', 'converte
 
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
+// The `fbx2gltf` npm package ships a native binary (it has no CLI `bin`, so
+// `npx fbx2gltf` fails with "could not determine executable"). Resolve the
+// platform binary directly from the installed package.
+function resolveFbx2gltfBinary() {
+  const platformDir = { Linux: 'Linux', Darwin: 'Darwin', Windows_NT: 'Windows_NT' }[require('os').type()];
+  const exe = process.platform === 'win32' ? 'FBX2glTF.exe' : 'FBX2glTF';
+  try {
+    const pkgDir = path.dirname(require.resolve('fbx2gltf/package.json'));
+    const bin = path.join(pkgDir, 'bin', platformDir || '', exe);
+    if (fs.existsSync(bin)) {
+      try { fs.chmodSync(bin, 0o755); } catch {}
+      return bin;
+    }
+  } catch {}
+  return null;
+}
+const FBX2GLTF_BIN = resolveFbx2gltfBinary();
+
 function convert(inputFile) {
   const base = path.basename(inputFile, path.extname(inputFile));
   const outFile = path.join(OUT_DIR, base + '.glb');
 
-  const tryCommands = [
-    ['npx', ['fbx2gltf', '-b', '-i', inputFile, '-o', outFile]],
-    ['fbx2gltf', ['-b', '-i', inputFile, '-o', outFile]],
-  ];
+  const tryCommands = [];
+  if (FBX2GLTF_BIN) tryCommands.push([FBX2GLTF_BIN, ['-b', '-i', inputFile, '-o', outFile]]);
+  // Fallbacks in case a global install exposes a CLI.
+  tryCommands.push(['fbx2gltf', ['-b', '-i', inputFile, '-o', outFile]]);
+  tryCommands.push(['FBX2glTF', ['-b', '-i', inputFile, '-o', outFile]]);
 
   function runCmd(cmd, args, cb) {
     const p = spawn(cmd, args, { stdio: 'inherit' });

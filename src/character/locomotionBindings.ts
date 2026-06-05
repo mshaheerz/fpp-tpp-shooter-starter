@@ -14,6 +14,12 @@ function buildRifleLocomotionBindings(has: HasClip) {
     jump: 'jump',
     fall: has('falling_to_landing') ? 'falling_to_landing' : 'jump',
     land: 'jump',
+    // Crouch locomotion — falls back to standing clips when the crouch pack
+    // isn't present, so the character still moves naturally without them.
+    crouchIdle: has('crouch_idle') ? 'crouch_idle' : 'idle',
+    crouchWalk: has('crouch_walk_forward') ? 'crouch_walk_forward' : 'walk_forward',
+    crouchStrafeL: has('crouch_strafe_left') ? 'crouch_strafe_left' : 'strafe_left',
+    crouchStrafeR: has('crouch_strafe_right') ? 'crouch_strafe_right' : 'strafe_right',
   }
 }
 

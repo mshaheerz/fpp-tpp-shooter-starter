@@ -272,7 +272,7 @@ async function main() {
     }
     const ledgeInfo = player.mode === 'hanging' || player.mode === 'climbing'
       ? { mode: player.mode, yaw: player.ledgeYaw, shimmy: player.ledgeShimmyDir } : undefined
-    character.update(player.position, player.velocity, player.grounded, cam.yaw, dt, ledgeInfo, player.capsuleBottomOffset)
+    character.update(player.position, player.velocity, player.grounded, cam.yaw, dt, ledgeInfo, player.capsuleBottomOffset, player.crouching)
     if (!ledgeInfo) character.applySpineAim(cam.pitch)
     fpsMesh.update(dt)
     particles.update(dt)
