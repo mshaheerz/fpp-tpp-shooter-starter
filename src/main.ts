@@ -44,12 +44,18 @@ async function main() {
     if (loadingText) loadingText.textContent = t
   }
   function hideLoading() {
-    if (loadingEl) loadingEl.style.display = 'none'
+    if (!loadingEl) return
+    // Fade out (CSS transition), then remove from layout so it can't block clicks.
+    loadingEl.classList.add('fade-out')
+    setTimeout(() => { loadingEl.style.display = 'none' }, 500)
   }
   const loadingUi = {
     show(text: string) {
       setLoading(text)
-      if (loadingEl) loadingEl.style.display = ''
+      if (loadingEl) {
+        loadingEl.classList.remove('fade-out')
+        loadingEl.style.display = ''
+      }
     },
     hide: hideLoading,
   }

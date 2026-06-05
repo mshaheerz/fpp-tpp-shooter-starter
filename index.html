@@ -12,12 +12,99 @@
         width: 100%; height: 100%;
       }
       #lock-hint {
-        position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
-        color: #fff; font: 14px/1.4 system-ui, sans-serif; text-align: center;
-        background: rgba(0,0,0,0.55); padding: 12px 20px; border-radius: 8px;
-        pointer-events: none;
+        position: fixed; left: 50%; bottom: 7%; top: auto; transform: translateX(-50%);
+        color: #e9edf2; font: 12px/1.5 "Segoe UI", system-ui, sans-serif; letter-spacing: 0.04em;
+        text-align: center; max-width: min(760px, 92vw);
+        background: linear-gradient(180deg, rgba(14,18,24,0.78), rgba(8,10,14,0.86));
+        border: 1px solid rgba(240,180,80,0.25);
+        box-shadow: 0 8px 30px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+        padding: 11px 22px; border-radius: 6px; pointer-events: none;
+        backdrop-filter: blur(4px);
+      }
+      #lock-hint::before {
+        content: "▶ CLICK TO PLAY";
+        display: block; color: #f5c451; font-weight: 700; letter-spacing: 0.18em;
+        font-size: 13px; margin-bottom: 6px;
       }
       #lock-hint.hidden { display: none; }
+
+      /* ---- PUBG-style cinematic loading screen ---- */
+      #loading {
+        position: fixed; inset: 0; z-index: 100000; overflow: hidden;
+        display: flex; align-items: center; justify-content: center;
+        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        opacity: 1; transition: opacity 0.5s ease;
+      }
+      #loading.fade-out { opacity: 0; pointer-events: none; }
+      /* Layered cinematic background. Swap the `--splash` url for a real image
+         later (e.g. url('/assets/splash.jpg')) and it overlays the gradient. */
+      #loading .loading-bg {
+        position: absolute; inset: 0;
+        background:
+          var(--splash, none),
+          radial-gradient(120% 90% at 50% 8%, rgba(58,72,96,0.55), rgba(0,0,0,0) 60%),
+          radial-gradient(80% 60% at 78% 88%, rgba(150,96,28,0.35), rgba(0,0,0,0) 55%),
+          linear-gradient(170deg, #12161d 0%, #0b0e13 45%, #06080b 100%);
+        background-size: cover; background-position: center;
+        filter: saturate(1.05) contrast(1.05);
+      }
+      /* Faint terrain-like horizon streaks for depth. */
+      #loading .loading-bg::after {
+        content: ""; position: absolute; inset: 0;
+        background:
+          linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px) 0 0 / 64px 100%,
+          linear-gradient(0deg, rgba(0,0,0,0.4), rgba(0,0,0,0) 30%);
+        mix-blend-mode: overlay;
+      }
+      #loading .loading-vignette {
+        position: absolute; inset: 0; pointer-events: none;
+        background: radial-gradient(110% 110% at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.7) 100%);
+      }
+      #loading .loading-grain {
+        position: absolute; inset: -50%; pointer-events: none; opacity: 0.06;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        animation: grain-shift 1.2s steps(2) infinite;
+      }
+      @keyframes grain-shift {
+        0% { transform: translate(0,0); } 50% { transform: translate(-3%,2%); } 100% { transform: translate(2%,-2%); }
+      }
+      #loading .loading-content {
+        position: relative; text-align: center; color: #eef2f7;
+        padding: 0 24px; width: min(620px, 90vw);
+        animation: loading-rise 0.6s ease-out both;
+      }
+      @keyframes loading-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+      #loading .loading-tag {
+        font-size: 12px; letter-spacing: 0.42em; color: #f5c451;
+        font-weight: 700; margin-bottom: 14px; text-shadow: 0 0 18px rgba(245,196,81,0.4);
+      }
+      #loading .loading-title {
+        margin: 0; font-size: clamp(40px, 8vw, 84px); font-weight: 800;
+        letter-spacing: 0.06em; line-height: 1; color: #fff;
+        text-shadow: 0 4px 30px rgba(0,0,0,0.7), 0 0 40px rgba(90,140,210,0.25);
+      }
+      #loading .loading-title span { color: #f5c451; font-weight: 400; }
+      #loading .loading-sub {
+        margin-top: 8px; font-size: clamp(13px, 2.2vw, 18px);
+        letter-spacing: 0.5em; color: #9fb0c4; font-weight: 600; padding-left: 0.5em;
+      }
+      #loading .loading-bar {
+        position: relative; height: 4px; margin: 34px auto 14px; width: 100%;
+        background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+      }
+      #loading .loading-bar-fill {
+        position: absolute; top: 0; left: 0; height: 100%; width: 35%;
+        background: linear-gradient(90deg, rgba(245,196,81,0) 0%, #f5c451 50%, rgba(245,196,81,0) 100%);
+        border-radius: 4px; animation: bar-sweep 1.25s ease-in-out infinite;
+      }
+      @keyframes bar-sweep {
+        0% { left: -35%; } 100% { left: 100%; }
+      }
+      #loading .loading-status {
+        font-size: 13px; letter-spacing: 0.12em; color: #aebccd; text-transform: uppercase;
+        min-height: 1.2em;
+      }
 
       #map-menu {
         position: fixed; inset: 0; z-index: 90000;
@@ -119,9 +206,18 @@
   <body>
     <div id="app"></div>
     <canvas id="hud"></canvas>
-    <div id="loading" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:100000;">
-      <div style="background:rgba(0,0,0,0.8);color:#fff;padding:18px 24px;border-radius:10px;font:14px/1.4 system-ui, sans-serif;max-width:90%;text-align:center">
-        <div id="loading-text">Loading…</div>
+    <div id="loading">
+      <div class="loading-bg" aria-hidden="true"></div>
+      <div class="loading-vignette" aria-hidden="true"></div>
+      <div class="loading-grain" aria-hidden="true"></div>
+      <div class="loading-content">
+        <div class="loading-tag">TACTICAL OPERATIONS</div>
+        <h1 class="loading-title">FPP&nbsp;<span>//</span>&nbsp;TPP</h1>
+        <div class="loading-sub">FPS&nbsp;STARTER</div>
+        <div class="loading-bar">
+          <div class="loading-bar-fill"></div>
+        </div>
+        <div id="loading-text" class="loading-status">Loading…</div>
       </div>
     </div>
     <div id="map-menu" class="hidden">
