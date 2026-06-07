@@ -21,6 +21,20 @@ export const JUMP_BUFFER_TIME = 0.12
 export const VARIABLE_JUMP_CUTOFF = 0.6
 export const MAX_FALL_SPEED = -53
 
+// ── Stair / step-up assist ─────────────────────────────────────────────────
+// The player is a velocity-driven dynamic capsule (no Rapier autostep), so it
+// can't climb stair risers on its own. `tryStepUp` lifts the capsule onto a low
+// obstacle ahead when the space above it is clear. STEP_MAX_HEIGHT is the tallest
+// step auto-mounted; anything taller reads as a wall (or a ledge to grab).
+export const STEP_MAX_HEIGHT = 0.4
+export const STEP_FORWARD_MARGIN = 0.12
+// Visual smoothing after a step snap (Source-style): the body teleports up, but
+// the rendered eye/character ease up to it so the climb looks smooth, not poppy.
+// RATE is the exponential catch-up (1/s); MIN_SPEED is a floor so big steps still
+// close quickly. Together they erase a 0.4 m step in roughly 90–120 ms.
+export const STEP_SMOOTH_RATE = 12
+export const STEP_SMOOTH_MIN_SPEED = 1.5
+
 export const LEDGE_CHEST_OFFSET = 0.35
 export const LEDGE_FORWARD_REACH = 0.5
 export const LEDGE_TOP_PROBE_ABOVE = 0.55

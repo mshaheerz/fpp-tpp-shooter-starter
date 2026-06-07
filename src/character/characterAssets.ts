@@ -32,9 +32,19 @@ export interface CharacterAssets {
 
 const OVERLAY_NAMES = new Set(['firing_rifle', 'reload_rifle', 'aim_idle', 'knife_stab'])
 
+/** Clips authored with a deliberately LOWERED pelvis (the feet stay planted while
+ *  the hips drop). For these we must NOT snap the Hips back to the standing bind
+ *  height — that would lift the pelvis to standing level while the legs remain
+ *  folded, leaving the feet dangling in mid-air. We keep their absolute authored
+ *  Hips Y and only zero the horizontal (X/Z) drift. */
+function isLoweredPelvisClip(name: string): boolean {
+  return /crouch/i.test(name)
+}
+
 /** Strip/zero Hips position drift the same way ThirdPersonCharacter does. */
 function processClipTracks(name: string, clip: AnimationClip, bindHipsY: number) {
   const isOverlay = OVERLAY_NAMES.has(name)
+  const keepAbsoluteY = isLoweredPelvisClip(name)
   clip.tracks = clip.tracks.filter((track) => {
     if (!track.name.endsWith('.position')) return true
     if (!/Hips/i.test(track.name)) return true
@@ -44,7 +54,9 @@ function processClipTracks(name: string, clip: AnimationClip, bindHipsY: number)
       const firstY = v[1] ?? bindHipsY
       for (let i = 0; i < v.length; i += 3) {
         v[i] = 0
-        v[i + 1] = bindHipsY + (v[i + 1] - firstY)
+        // Crouch clips keep their authored (low) pelvis height so the feet stay
+        // on the ground; everything else re-anchors to the standing bind height.
+        v[i + 1] = keepAbsoluteY ? v[i + 1] : bindHipsY + (v[i + 1] - firstY)
         v[i + 2] = 0
       }
     }

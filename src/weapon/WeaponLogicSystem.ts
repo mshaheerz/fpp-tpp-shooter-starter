@@ -40,6 +40,7 @@ export class WeaponLogicSystem {
     private character: ThirdPersonCharacter,
     private playerBody: RAPIER.RigidBody,
     private onEquip: (id: WeaponId) => Promise<void>,
+    private isCrouching: () => boolean = () => false,
   ) {
     this.ammo = {
       ak47: { mag: WEAPONS.ak47.magSize, reserve: WEAPONS.ak47.reserve },
@@ -96,7 +97,11 @@ export class WeaponLogicSystem {
     const isMelee = this.current === 'knife'
     const bodyVelocity = this.playerBody.linvel()
     const horizontalSpeed = Math.hypot(bodyVelocity.x, bodyVelocity.z)
-    const canUseFullBodyOverlay = horizontalSpeed < 0.2
+    // The full-body firing/aim overlay zeroes the locomotion weights, which would
+    // yank a crouched player up into the standing fire pose. While crouched (or
+    // moving) we keep the locomotion clip in control so the crouch stance holds;
+    // the gun still fires (recoil/bullets/muzzle flash are independent of this).
+    const canUseFullBodyOverlay = horizontalSpeed < 0.2 && !this.isCrouching()
 
     // ADS state mirrors RMB — disabled for melee (the knife has nothing to aim).
     const wantAds = !isMelee && this.input.rmb && this.state !== 'Reloading' && this.state !== 'Switching'

@@ -1,5 +1,6 @@
 import { MAPS, type MapMeta } from './maps'
 import { clamp } from './common/math'
+import { CharacterPreview } from './menu/CharacterPreview'
 import {
   getCharacterOptions,
   loadStoredCharacterSelection,
@@ -20,22 +21,38 @@ export interface MenuSelection {
 }
 
 /**
- * Controller for the start/in-game overlay. Two sections:
- *   - a grid of map cards (free-roam: click a card → play that map), and
- *   - a Team Deathmatch panel (bot count + rounds-to-win + map picker + Start).
+ * Controller for the start/in-game loadout overlay.
  *
- * `show()` reveals the overlay, exits pointer lock, and resolves with a
- * `MenuSelection`. Reads maps from the shared `MAPS` registry.
+ * Layout is a two-column "loadout" screen:
+ *   - Left: a live rotating 3D {@link CharacterPreview} of the chosen player
+ *     rig, plus clickable character/enemy-rig chips.
+ *   - Right: FREE ROAM / TEAM DEATHMATCH mode tabs, a grid of selectable map
+ *     cards, TDM controls (shown for TDM), and one big commit button.
+ *
+ * `show()` reveals the overlay, exits pointer lock, starts the preview loop, and
+ * resolves with a {@link MenuSelection} when the user commits. The resolved
+ * shape is unchanged from the previous version so `setup/mapFlow.ts` keeps
+ * working as-is.
  */
 export class MapMenu {
   private el: HTMLElement
   private grid: HTMLElement
   private resolver: ((sel: MenuSelection) => void) | null = null
+
   private characterSelection = loadStoredCharacterSelection()
-  // TDM controls.
+  private mode: GameMode = 'roam'
+  private selectedMapId = MAPS[0]?.id ?? ''
   private tdmBots = 4
   private tdmRounds = 2
-  private tdmMapId = MAPS[0]?.id ?? ''
+
+  private readonly preview = new CharacterPreview()
+  /** Re-render hooks for the dynamic regions, set up in build*(). */
+  private refreshPlayerChips: () => void = () => {}
+  private refreshEnemyChips: () => void = () => {}
+  private refreshMapCards: () => void = () => {}
+  private refreshModeTabs: () => void = () => {}
+  private refreshTdmStrip: () => void = () => {}
+  private refreshCommit: () => void = () => {}
 
   constructor() {
     const el = document.getElementById('map-menu')
@@ -43,171 +60,230 @@ export class MapMenu {
     if (!el || !grid) throw new Error('map-menu DOM missing — check index.html')
     this.el = el
     this.grid = grid
+
+    this.mountPreview()
+    this.buildCharacterChips()
+    this.buildModeTabs()
     this.render(MAPS)
-    this.buildCharacterSection()
-    this.buildTdmSection()
+    this.buildTdmStrip()
+    this.buildCommit()
+    this.syncDynamic()
   }
 
-  /** Build a card per registered map (free-roam quick start). */
+  // ---- Left column: 3D preview + character chips -------------------------
+
+  private mountPreview() {
+    const canvas = document.getElementById('loadout-canvas') as HTMLCanvasElement | null
+    if (!canvas) return
+    this.preview.mount(canvas)
+    window.addEventListener('resize', () => this.preview.resize())
+  }
+
+  private buildCharacterChips() {
+    const playerHost = document.getElementById('player-chips')
+    const enemyHost = document.getElementById('enemy-chips')
+
+    if (playerHost) {
+      this.refreshPlayerChips = () => {
+        playerHost.innerHTML = ''
+        for (const def of getCharacterOptions('player')) {
+          const chip = document.createElement('button')
+          chip.className = 'loadout-chip'
+          chip.textContent = def.label
+          chip.classList.toggle('selected', def.id === this.characterSelection.playerId)
+          chip.addEventListener('click', () => {
+            this.updateCharacterSelection({ playerId: def.id })
+            this.preview.setCharacter(this.characterSelection.playerId)
+            this.refreshPlayerChips()
+          })
+          playerHost.appendChild(chip)
+        }
+      }
+      this.refreshPlayerChips()
+    }
+
+    if (enemyHost) {
+      this.refreshEnemyChips = () => {
+        enemyHost.innerHTML = ''
+        for (const def of getCharacterOptions('enemy')) {
+          const chip = document.createElement('button')
+          chip.className = 'loadout-chip loadout-chip-sm'
+          chip.textContent = def.label
+          chip.classList.toggle('selected', def.id === this.characterSelection.enemyId)
+          chip.addEventListener('click', () => {
+            this.updateCharacterSelection({ enemyId: def.id })
+            this.refreshEnemyChips()
+          })
+          enemyHost.appendChild(chip)
+        }
+      }
+      this.refreshEnemyChips()
+    }
+  }
+
+  // ---- Right column: mode tabs, map cards, TDM, commit -------------------
+
+  private buildModeTabs() {
+    const host = document.getElementById('mode-tabs')
+    if (!host) return
+    const tabs: Array<{ mode: GameMode; label: string }> = [
+      { mode: 'roam', label: 'Free Roam' },
+      { mode: 'tdm', label: 'Team Deathmatch' },
+    ]
+    this.refreshModeTabs = () => {
+      host.innerHTML = ''
+      for (const t of tabs) {
+        const btn = document.createElement('button')
+        btn.className = 'mode-tab'
+        btn.textContent = t.label
+        btn.classList.toggle('active', this.mode === t.mode)
+        btn.addEventListener('click', () => {
+          this.mode = t.mode
+          this.syncDynamic()
+        })
+        host.appendChild(btn)
+      }
+    }
+    this.refreshModeTabs()
+  }
+
+  /** Build a selectable card per registered map. */
   private render(maps: MapMeta[]) {
-    this.grid.innerHTML = ''
-    for (const m of maps) {
-      const card = document.createElement('div')
-      card.className = 'map-card'
-      card.dataset.mapId = m.id
+    this.refreshMapCards = () => {
+      this.grid.innerHTML = ''
+      for (const m of maps) {
+        const card = document.createElement('div')
+        card.className = 'map-card'
+        card.dataset.mapId = m.id
+        card.classList.toggle('selected', m.id === this.selectedMapId)
 
-      const title = document.createElement('div')
-      title.className = 'map-name'
-      title.textContent = m.name
-      card.appendChild(title)
+        const title = document.createElement('div')
+        title.className = 'map-name'
+        title.textContent = m.name
+        card.appendChild(title)
 
-      const desc = document.createElement('div')
-      desc.className = 'map-desc'
-      desc.textContent = m.description
-      card.appendChild(desc)
+        const desc = document.createElement('div')
+        desc.className = 'map-desc'
+        desc.textContent = m.description
+        card.appendChild(desc)
 
-      card.addEventListener('click', () =>
-        this.pick({ mapId: m.id, mode: 'roam', characters: this.characterSelection }),
+        card.addEventListener('click', () => {
+          this.selectedMapId = m.id
+          this.refreshMapCards()
+          this.refreshCommit()
+        })
+        this.grid.appendChild(card)
+      }
+    }
+    this.refreshMapCards()
+  }
+
+  /** Bots + rounds steppers, only relevant in TDM. */
+  private buildTdmStrip() {
+    const host = document.getElementById('tdm-strip')
+    if (!host) return
+
+    this.refreshTdmStrip = () => {
+      host.classList.toggle('hidden', this.mode !== 'tdm')
+      if (this.mode !== 'tdm') return
+      host.innerHTML = ''
+      host.appendChild(
+        this.stepper('Bots', this.tdmBots, 1, 12, (v) => {
+          this.tdmBots = v
+        }),
       )
-      this.grid.appendChild(card)
+      host.appendChild(
+        this.stepper('Rounds to win', this.tdmRounds, 1, 9, (v) => {
+          this.tdmRounds = v
+        }),
+      )
     }
+    this.refreshTdmStrip()
   }
 
-  private buildCharacterSection() {
-    const host = document.getElementById('character-section')
-    if (!host) return
-    host.innerHTML = ''
-
-    const title = document.createElement('h2')
-    title.className = 'tdm-title'
-    title.textContent = 'Characters'
-    host.appendChild(title)
-
-    const sub = document.createElement('div')
-    sub.className = 'tdm-sub'
-    sub.textContent = 'Choose your main character and which rig new enemies use.'
-    host.appendChild(sub)
-
-    const row = document.createElement('div')
-    row.className = 'tdm-row'
-
-    const playerSelect = document.createElement('select')
-    playerSelect.className = 'tdm-select'
-    for (const definition of getCharacterOptions('player')) {
-      const option = document.createElement('option')
-      option.value = definition.id
-      option.textContent = definition.label
-      playerSelect.appendChild(option)
-    }
-    playerSelect.value = this.characterSelection.playerId
-    playerSelect.addEventListener('change', () => {
-      this.updateCharacterSelection({ playerId: playerSelect.value })
-      playerSelect.value = this.characterSelection.playerId
-    })
-    row.appendChild(this.labeled('Player', playerSelect))
-
-    const enemySelect = document.createElement('select')
-    enemySelect.className = 'tdm-select'
-    for (const definition of getCharacterOptions('enemy')) {
-      const option = document.createElement('option')
-      option.value = definition.id
-      option.textContent = definition.label
-      enemySelect.appendChild(option)
-    }
-    enemySelect.value = this.characterSelection.enemyId
-    enemySelect.addEventListener('change', () => {
-      this.updateCharacterSelection({ enemyId: enemySelect.value })
-      enemySelect.value = this.characterSelection.enemyId
-    })
-    row.appendChild(this.labeled('Enemies', enemySelect))
-
-    host.appendChild(row)
-  }
-
-  /** Build the Team Deathmatch panel under the map grid. */
-  private buildTdmSection() {
-    const host = document.getElementById('tdm-section')
-    if (!host) return
-    host.innerHTML = ''
-
-    const title = document.createElement('h2')
-    title.className = 'tdm-title'
-    title.textContent = 'Team Deathmatch'
-    host.appendChild(title)
-
-    const sub = document.createElement('div')
-    sub.className = 'tdm-sub'
-    sub.textContent = 'Round-based, last team standing wins. You vs a squad of bots.'
-    host.appendChild(sub)
-
-    const row = document.createElement('div')
-    row.className = 'tdm-row'
-
-    // Map picker.
-    const mapSel = document.createElement('select')
-    mapSel.className = 'tdm-select'
-    for (const m of MAPS) {
-      const opt = document.createElement('option')
-      opt.value = m.id
-      opt.textContent = m.name
-      mapSel.appendChild(opt)
-    }
-    mapSel.value = this.tdmMapId
-    mapSel.addEventListener('change', () => (this.tdmMapId = mapSel.value))
-    row.appendChild(this.labeled('Map', mapSel))
-
-    // Bot count stepper.
-    const botsInput = document.createElement('input')
-    botsInput.type = 'number'
-    botsInput.className = 'tdm-num'
-    botsInput.min = '1'
-    botsInput.max = '12'
-    botsInput.value = String(this.tdmBots)
-    botsInput.addEventListener('change', () => {
-      this.tdmBots = clamp(Number(botsInput.value) || 4, 1, 12)
-      botsInput.value = String(this.tdmBots)
-    })
-    row.appendChild(this.labeled('Bots', botsInput))
-
-    // Rounds-to-win stepper.
-    const roundsInput = document.createElement('input')
-    roundsInput.type = 'number'
-    roundsInput.className = 'tdm-num'
-    roundsInput.min = '1'
-    roundsInput.max = '9'
-    roundsInput.value = String(this.tdmRounds)
-    roundsInput.addEventListener('change', () => {
-      this.tdmRounds = clamp(Number(roundsInput.value) || 2, 1, 9)
-      roundsInput.value = String(this.tdmRounds)
-    })
-    row.appendChild(this.labeled('Rounds to win', roundsInput))
-
-    // Start button.
-    const start = document.createElement('button')
-    start.className = 'tdm-start'
-    start.textContent = 'Start Match'
-    start.addEventListener('click', () =>
-      this.pick({
-        mapId: this.tdmMapId,
-        mode: 'tdm',
-        characters: this.characterSelection,
-        tdm: { bots: this.tdmBots, roundsToWin: this.tdmRounds },
-      }),
-    )
-    row.appendChild(start)
-
-    host.appendChild(row)
-  }
-
-  private labeled(label: string, control: HTMLElement): HTMLElement {
+  /** A labeled −/value/+ stepper control. */
+  private stepper(
+    label: string,
+    initial: number,
+    min: number,
+    max: number,
+    onChange: (v: number) => void,
+  ): HTMLElement {
+    let value = clamp(initial, min, max)
     const wrap = document.createElement('div')
-    wrap.className = 'tdm-field'
+    wrap.className = 'loadout-stepper'
+
     const l = document.createElement('label')
     l.textContent = label
     wrap.appendChild(l)
-    wrap.appendChild(control)
+
+    const controls = document.createElement('div')
+    controls.className = 'stepper-controls'
+
+    const valueEl = document.createElement('span')
+    valueEl.className = 'stepper-value'
+    valueEl.textContent = String(value)
+
+    const set = (next: number) => {
+      value = clamp(next, min, max)
+      valueEl.textContent = String(value)
+      onChange(value)
+    }
+
+    const minus = document.createElement('button')
+    minus.className = 'stepper-btn'
+    minus.textContent = '−'
+    minus.addEventListener('click', () => set(value - 1))
+
+    const plus = document.createElement('button')
+    plus.className = 'stepper-btn'
+    plus.textContent = '+'
+    plus.addEventListener('click', () => set(value + 1))
+
+    controls.appendChild(minus)
+    controls.appendChild(valueEl)
+    controls.appendChild(plus)
+    wrap.appendChild(controls)
     return wrap
   }
+
+  private buildCommit() {
+    const btn = document.getElementById('loadout-commit') as HTMLButtonElement | null
+    if (!btn) return
+    this.refreshCommit = () => {
+      btn.textContent = this.mode === 'tdm' ? 'Start Match' : 'Play'
+      btn.classList.toggle('tdm', this.mode === 'tdm')
+    }
+    btn.addEventListener('click', () => this.commit())
+    this.refreshCommit()
+  }
+
+  private commit() {
+    if (this.mode === 'tdm') {
+      this.pick({
+        mapId: this.selectedMapId,
+        mode: 'tdm',
+        characters: this.characterSelection,
+        tdm: { bots: this.tdmBots, roundsToWin: this.tdmRounds },
+      })
+    } else {
+      this.pick({
+        mapId: this.selectedMapId,
+        mode: 'roam',
+        characters: this.characterSelection,
+      })
+    }
+  }
+
+  /** Re-run all the dynamic refreshers (after a mode/selection change). */
+  private syncDynamic() {
+    this.refreshModeTabs()
+    this.refreshMapCards()
+    this.refreshTdmStrip()
+    this.refreshCommit()
+  }
+
+  // ---- Lifecycle ---------------------------------------------------------
 
   /** Show the menu and resolve with the selection. Exits pointer lock. */
   show(): Promise<MenuSelection> {
@@ -219,6 +295,9 @@ export class MapMenu {
       }
     }
     this.el.classList.remove('hidden')
+    this.preview.start()
+    this.preview.setCharacter(this.characterSelection.playerId)
+    this.preview.resize()
     return new Promise((resolve) => {
       this.resolver = resolve
     })
@@ -226,6 +305,7 @@ export class MapMenu {
 
   hide() {
     this.el.classList.add('hidden')
+    this.preview.stop()
   }
 
   private updateCharacterSelection(next: Partial<CharacterSelection>) {

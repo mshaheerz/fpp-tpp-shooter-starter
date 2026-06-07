@@ -7,6 +7,7 @@ import type { Combatant, Team } from './ai/DamageSystem'
 import { dlog } from './debug/log'
 import { updateCrouch } from './player/crouch'
 import { DEFAULT_CLIMB_DURATION, PlayerMode, tryGrabLedge, updateClimbing, updateHanging } from './player/ledge'
+import { tryStepUp } from './player/stepUp'
 import {
   AIR_ACCEL,
   CAPSULE_HALF_HEIGHT,
@@ -23,6 +24,8 @@ import {
   MAX_FALL_SPEED,
   PLAYER_MAX_HP,
   RUN_SPEED,
+  STEP_SMOOTH_MIN_SPEED,
+  STEP_SMOOTH_RATE,
   VARIABLE_JUMP_CUTOFF,
   WALK_SPEED,
 } from './player/movementConstants'
@@ -48,6 +51,10 @@ export class Player implements Combatant {
   grounded = false
   private coyoteTimer = 0
   private jumpBuffer = 0
+  /** Visual-only lag after a stair step-up: the body snaps up by this much, and
+   *  the reported (rendered) Y trails by `stepSmoothOffset`, decaying to 0 so the
+   *  camera/character glide up instead of popping. Negative = eye is below body. */
+  private stepSmoothOffset = 0
 
   // ── Combatant (health / team) ──────────────────────────────────────────────
   readonly id = 'player'
@@ -297,8 +304,32 @@ export class Player implements Combatant {
     if (this.velocity.y < MAX_FALL_SPEED) this.velocity.y = MAX_FALL_SPEED
     this.body.setLinvel({ x: _hVel.x, y: this.velocity.y, z: _hVel.z }, true)
 
-    // Visual mesh follows the capsule.
-    this.debugMesh.position.set(t.x, t.y, t.z)
+    // Stair / step-up assist: lift the capsule onto low obstacles (stair risers,
+    // curbs) it would otherwise jam against. Runs only while grounded + moving.
+    // The body teleports up by the returned rise; we bank that rise as visual
+    // lag so the rendered eye/character ease up rather than pop.
+    if (this.grounded) {
+      const rise = tryStepUp(this, dt)
+      if (rise > 0) this.stepSmoothOffset -= rise
+    }
+
+    // Decay the step-smoothing offset toward 0. Exponential catch-up with a
+    // velocity floor so tall steps still close quickly (≈100 ms for 0.4 m).
+    if (this.stepSmoothOffset !== 0) {
+      const mag = Math.abs(this.stepSmoothOffset)
+      const decay = Math.max(mag * STEP_SMOOTH_RATE, STEP_SMOOTH_MIN_SPEED) * dt
+      if (decay >= mag) this.stepSmoothOffset = 0
+      else this.stepSmoothOffset += Math.sign(-this.stepSmoothOffset) * decay
+    }
+
+    // `this.position` is the RENDERED position (body translation + visual lag).
+    // Collision/ground logic reads body.translation() directly, so this Y trail
+    // is cosmetic only.
+    const ft = this.body.translation()
+    this.position.set(ft.x, ft.y + this.stepSmoothOffset, ft.z)
+
+    // Visual mesh follows the smoothed render position.
+    this.debugMesh.position.set(ft.x, this.position.y, ft.z)
 
     // 5) Ledge grab detection. Only while airborne (so the player can't grab
     // a chest-high ledge while already standing on the ground), not while

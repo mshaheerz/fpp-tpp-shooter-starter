@@ -222,7 +222,7 @@ async function main() {
   await equip('ak47')
   applyMode()
 
-  const logic = new WeaponLogicSystem(input, cam, weapons, shooter, fpsMesh, character, player.body, equip)
+  const logic = new WeaponLogicSystem(input, cam, weapons, shooter, fpsMesh, character, player.body, equip, () => player.crouching)
   hud = new HUD(renderer.hudCtx, renderer.hudCanvas)
 
   player.onDamaged = () => hud.flashDamage()

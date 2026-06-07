@@ -106,91 +106,183 @@
         min-height: 1.2em;
       }
 
+      /* ---- Game-style loadout menu ---- */
       #map-menu {
-        position: fixed; inset: 0; z-index: 90000;
-        background: radial-gradient(circle at 50% 35%, rgba(28,32,38,0.92), rgba(8,10,14,0.96));
+        position: fixed; inset: 0; z-index: 90000; overflow: hidden;
         display: flex; align-items: center; justify-content: center;
-        font: 14px/1.4 system-ui, -apple-system, sans-serif; color: #e6e8ec;
+        font: 14px/1.4 "Segoe UI", system-ui, -apple-system, sans-serif; color: #e6e8ec;
       }
       #map-menu.hidden { display: none; }
-      #map-menu .map-menu-inner {
-        width: min(960px, 92vw); max-height: 90vh; overflow-y: auto;
-        padding: 28px 28px 22px;
+      #map-menu kbd {
+        background: rgba(245,196,81,0.14); border: 1px solid rgba(245,196,81,0.3);
+        border-radius: 4px; padding: 1px 6px; font: 11px/1 ui-monospace, monospace; color: #f5c451;
       }
-      #map-menu h1 {
-        margin: 0 0 22px; font-size: 22px; letter-spacing: 0.06em;
-        text-transform: uppercase; font-weight: 600; color: #fff;
+      /* Cinematic backdrop, matching the loading screen aesthetic. */
+      #map-menu .loadout-bg {
+        position: absolute; inset: 0;
+        background:
+          radial-gradient(120% 90% at 50% 6%, rgba(58,72,96,0.5), rgba(0,0,0,0) 60%),
+          radial-gradient(80% 60% at 80% 92%, rgba(150,96,28,0.32), rgba(0,0,0,0) 55%),
+          linear-gradient(170deg, #12161d 0%, #0b0e13 45%, #06080b 100%);
       }
+      #map-menu .loadout-vignette {
+        position: absolute; inset: 0; pointer-events: none;
+        background: radial-gradient(120% 120% at 50% 45%, rgba(0,0,0,0) 52%, rgba(0,0,0,0.72) 100%);
+      }
+      #map-menu .loadout-grain {
+        position: absolute; inset: -50%; pointer-events: none; opacity: 0.05;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        animation: grain-shift 1.2s steps(2) infinite;
+      }
+
+      .loadout-shell {
+        position: relative; width: min(1180px, 94vw); max-height: 92vh;
+        display: flex; flex-direction: column; padding: 26px clamp(20px, 3vw, 40px);
+        animation: loading-rise 0.45s ease-out both;
+      }
+      .loadout-header { margin-bottom: 20px; }
+      .loadout-kicker {
+        font-size: 11px; letter-spacing: 0.42em; color: #f5c451; font-weight: 700;
+        text-shadow: 0 0 16px rgba(245,196,81,0.35); margin-bottom: 8px;
+      }
+      .loadout-title {
+        margin: 0; font-size: clamp(26px, 4vw, 42px); font-weight: 800;
+        letter-spacing: 0.05em; line-height: 1; color: #fff; text-transform: uppercase;
+        text-shadow: 0 4px 26px rgba(0,0,0,0.6);
+      }
+      .loadout-title span { color: #f5c451; font-weight: 400; }
+
+      .loadout-body {
+        display: grid; grid-template-columns: minmax(280px, 0.85fr) 1.15fr;
+        gap: clamp(20px, 3vw, 40px); min-height: 0; flex: 1;
+      }
+
+      /* Left column: preview + pickers */
+      .loadout-left { display: flex; flex-direction: column; gap: 18px; min-height: 0; }
+      .loadout-preview {
+        position: relative; flex: 1; min-height: 320px; border-radius: 14px;
+        background:
+          radial-gradient(80% 70% at 50% 18%, rgba(90,120,170,0.22), rgba(0,0,0,0) 60%),
+          linear-gradient(180deg, rgba(20,26,34,0.7), rgba(8,10,14,0.85));
+        border: 1px solid rgba(245,196,81,0.18);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 18px 50px rgba(0,0,0,0.55);
+        overflow: hidden;
+      }
+      #loadout-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      .loadout-preview-ring {
+        position: absolute; left: 50%; bottom: 8%; transform: translateX(-50%);
+        width: 56%; height: 14%; border-radius: 50%; pointer-events: none;
+        background: radial-gradient(50% 50% at 50% 50%, rgba(245,196,81,0.18), rgba(245,196,81,0) 70%);
+      }
+      .loadout-pickers { display: flex; flex-direction: column; gap: 14px; }
+      .loadout-group { display: flex; flex-direction: column; gap: 8px; }
+      .loadout-label {
+        font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+        color: #9fb0c4; font-weight: 700;
+      }
+      .loadout-label-block { margin: 4px 0 12px; }
+      .loadout-chips { display: flex; gap: 9px; flex-wrap: wrap; }
+      .loadout-chip {
+        background: rgba(255,255,255,0.04); color: #d3dae4;
+        border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+        padding: 9px 16px; font-size: 13px; font-weight: 600; letter-spacing: 0.03em;
+        cursor: pointer; transition: all 130ms ease;
+      }
+      .loadout-chip-sm { padding: 6px 12px; font-size: 12px; }
+      .loadout-chip:hover { border-color: rgba(245,196,81,0.5); color: #fff; transform: translateY(-1px); }
+      .loadout-chip.selected {
+        background: linear-gradient(180deg, rgba(245,196,81,0.22), rgba(245,196,81,0.1));
+        border-color: #f5c451; color: #ffe9b3;
+        box-shadow: 0 0 0 1px rgba(245,196,81,0.4), 0 6px 18px rgba(245,196,81,0.15);
+      }
+
+      /* Right column: mode tabs, maps, tdm, deploy */
+      .loadout-right { display: flex; flex-direction: column; min-height: 0; }
+      .mode-tabs { display: flex; gap: 10px; margin-bottom: 18px; }
+      .mode-tab {
+        flex: 1; background: rgba(255,255,255,0.03); color: #aab4c2;
+        border: 1px solid rgba(255,255,255,0.1); border-radius: 9px;
+        padding: 12px 14px; font-size: 14px; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; cursor: pointer; transition: all 140ms ease;
+      }
+      .mode-tab:hover { color: #fff; border-color: rgba(245,196,81,0.45); }
+      .mode-tab.active {
+        background: linear-gradient(180deg, rgba(245,196,81,0.2), rgba(245,196,81,0.06));
+        border-color: #f5c451; color: #fff;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 22px rgba(245,196,81,0.14);
+      }
+
       #map-menu-grid {
-        display: grid; gap: 16px;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        display: grid; gap: 12px; overflow-y: auto; padding-right: 4px;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        align-content: start;
       }
       .map-card {
-        background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 10px; padding: 18px 18px 16px;
-        cursor: pointer; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+        position: relative; background: rgba(255,255,255,0.035);
+        border: 1px solid rgba(255,255,255,0.09); border-radius: 11px;
+        padding: 16px 16px 14px; cursor: pointer; overflow: hidden;
+        transition: background 130ms ease, border-color 130ms ease, transform 130ms ease;
+      }
+      .map-card::before {
+        content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+        background: #f5c451; opacity: 0; transition: opacity 130ms ease;
       }
       .map-card:hover {
-        background: rgba(255,255,255,0.08);
-        border-color: rgba(255,255,255,0.22);
-        transform: translateY(-1px);
+        background: rgba(255,255,255,0.07);
+        border-color: rgba(245,196,81,0.4); transform: translateY(-2px);
       }
-      .map-card .map-name {
-        font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 6px;
+      .map-card.selected {
+        background: linear-gradient(180deg, rgba(245,196,81,0.12), rgba(255,255,255,0.04));
+        border-color: #f5c451; box-shadow: 0 8px 24px rgba(245,196,81,0.14);
       }
-      .map-card .map-desc {
-        font-size: 12.5px; color: #b8bdc6; line-height: 1.5;
-      }
-      #tdm-section {
-        margin-top: 18px; padding: 20px; border-radius: 10px;
-        background: rgba(150,40,40,0.10);
-        border: 1px solid rgba(220,90,90,0.28);
-      }
-      #character-section {
-        margin-top: 26px; padding: 20px; border-radius: 10px;
-        background: rgba(46,89,160,0.12);
-        border: 1px solid rgba(108,156,230,0.26);
-      }
-      #character-section .tdm-title,
-      #tdm-section .tdm-title {
-        margin: 0 0 4px; font-size: 17px; font-weight: 600; color: #ffd9d0;
-        letter-spacing: 0.04em; text-transform: uppercase;
-      }
-      #character-section .tdm-title { color: #d7e8ff; }
-      #character-section .tdm-sub,
-      #tdm-section .tdm-sub { font-size: 12.5px; color: #c8b3b0; margin-bottom: 16px; }
-      #character-section .tdm-sub { color: #aec4df; }
-      #character-section .tdm-row,
-      #tdm-section .tdm-row {
-        display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap;
-      }
-      #character-section .tdm-field,
-      #tdm-section .tdm-field { display: flex; flex-direction: column; gap: 5px; }
-      #character-section .tdm-field label,
-      #tdm-section .tdm-field label {
-        font-size: 11px; color: #b8bdc6; text-transform: uppercase; letter-spacing: 0.05em;
-      }
-      #character-section select,
-      #character-section input,
-      #tdm-section select, #tdm-section input {
-        background: #161a20; color: #eef2f6; border: 1px solid #3a4150;
-        border-radius: 6px; padding: 7px 9px; font: 13px/1 ui-monospace, monospace;
-      }
-      #tdm-section .tdm-num { width: 70px; }
-      #tdm-section .tdm-start {
-        margin-left: auto; background: #c0413f; color: #fff; border: none;
-        border-radius: 7px; padding: 10px 20px; font-size: 14px; font-weight: 600;
-        cursor: pointer; transition: background 120ms ease, transform 120ms ease;
-      }
-      #tdm-section .tdm-start:hover { background: #d44d4a; transform: translateY(-1px); }
+      .map-card.selected::before { opacity: 1; }
+      .map-card .map-name { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 6px; letter-spacing: 0.02em; }
+      .map-card .map-desc { font-size: 12px; color: #aeb6c2; line-height: 1.5; }
 
-      .map-menu-footer {
-        margin-top: 20px; color: #8a8f96; font-size: 12px; text-align: right;
+      .tdm-strip {
+        display: flex; gap: 26px; flex-wrap: wrap; margin-top: 16px; padding: 16px 18px;
+        border-radius: 10px; background: rgba(196,65,63,0.1); border: 1px solid rgba(220,90,90,0.28);
       }
-      .map-menu-footer kbd {
-        background: rgba(255,255,255,0.1); border-radius: 4px;
-        padding: 1px 6px; font: 11px/1 ui-monospace, monospace; color: #d6d9de;
+      .tdm-strip.hidden { display: none; }
+      .loadout-stepper { display: flex; flex-direction: column; gap: 8px; }
+      .loadout-stepper label {
+        font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #d9b6b2; font-weight: 700;
+      }
+      .stepper-controls { display: flex; align-items: center; gap: 4px; }
+      .stepper-btn {
+        width: 32px; height: 32px; border-radius: 7px; cursor: pointer;
+        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.16);
+        color: #fff; font-size: 18px; line-height: 1; font-weight: 700;
+        transition: all 120ms ease;
+      }
+      .stepper-btn:hover { background: rgba(245,196,81,0.2); border-color: #f5c451; }
+      .stepper-value {
+        min-width: 40px; text-align: center; font: 700 16px/1 ui-monospace, monospace; color: #fff;
+      }
+
+      .loadout-actions {
+        display: flex; align-items: center; justify-content: space-between; gap: 16px;
+        margin-top: auto; padding-top: 20px;
+      }
+      .loadout-hint { color: #8a93a0; font-size: 12px; }
+      .loadout-commit {
+        background: linear-gradient(180deg, #f7cf66, #e3a82f); color: #1a1206;
+        border: none; border-radius: 9px; padding: 14px 40px;
+        font-size: 16px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+        cursor: pointer; box-shadow: 0 8px 26px rgba(245,196,81,0.28);
+        transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+      }
+      .loadout-commit:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(245,196,81,0.4); }
+      .loadout-commit.tdm {
+        background: linear-gradient(180deg, #e0615d, #c0413f); color: #fff;
+        box-shadow: 0 8px 26px rgba(196,65,63,0.32);
+      }
+      .loadout-commit.tdm:hover { box-shadow: 0 12px 32px rgba(196,65,63,0.45); }
+
+      @media (max-width: 860px) {
+        .loadout-body { grid-template-columns: 1fr; }
+        .loadout-preview { min-height: 260px; }
+        #map-menu-grid { grid-template-columns: 1fr 1fr; }
       }
 
       #mod-menu {
@@ -235,12 +327,46 @@
       </div>
     </div>
     <div id="map-menu" class="hidden">
-      <div class="map-menu-inner">
-        <h1>Select Map</h1>
-        <div id="map-menu-grid"></div>
-        <div id="character-section"></div>
-        <div id="tdm-section"></div>
-        <div class="map-menu-footer">Press <kbd>M</kbd> in game to reopen this menu</div>
+      <div class="loadout-bg" aria-hidden="true"></div>
+      <div class="loadout-vignette" aria-hidden="true"></div>
+      <div class="loadout-grain" aria-hidden="true"></div>
+      <div class="loadout-shell">
+        <header class="loadout-header">
+          <div class="loadout-kicker">Tactical Operations</div>
+          <h1 class="loadout-title">Loadout <span>//</span> Deploy</h1>
+        </header>
+
+        <div class="loadout-body">
+          <!-- Left: live character preview + rig pickers -->
+          <section class="loadout-left">
+            <div class="loadout-preview">
+              <canvas id="loadout-canvas"></canvas>
+              <div class="loadout-preview-ring" aria-hidden="true"></div>
+            </div>
+            <div class="loadout-pickers">
+              <div class="loadout-group">
+                <div class="loadout-label">Operator</div>
+                <div id="player-chips" class="loadout-chips"></div>
+              </div>
+              <div class="loadout-group">
+                <div class="loadout-label">Enemy Rig</div>
+                <div id="enemy-chips" class="loadout-chips"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Right: mode, maps, match settings, deploy -->
+          <section class="loadout-right">
+            <div id="mode-tabs" class="mode-tabs"></div>
+            <div class="loadout-label loadout-label-block">Select Theatre</div>
+            <div id="map-menu-grid"></div>
+            <div id="tdm-strip" class="tdm-strip hidden"></div>
+            <div class="loadout-actions">
+              <div class="loadout-hint">Press <kbd>M</kbd> in game to reopen</div>
+              <button id="loadout-commit" class="loadout-commit">Play</button>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
 
