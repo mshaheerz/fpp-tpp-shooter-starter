@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Map Studio — Visual Level Editor</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>" />
+</head>
+<body>
+  <div id="viewport"></div>
+  <div id="toolbar">
+    <div class="logo">Map <span>Studio</span></div>
+    <div class="tb-sep"></div>
+    <div class="tb-group">
+      <select id="map-select" class="tb-select">
+        <option value="">— Load a map —</option>
+        <option value="shootRange">Shooting Range</option>
+        <option value="suburbanStreet">Suburban Street</option>
+        <option value="industrialYard">Industrial Yard</option>
+        <option value="ghostCity">Ghost City</option>
+        <option value="deathmatch1">Team Deathmatch 1</option>
+        <option value="deathmatch2">Team Deathmatch 2</option>
+      </select>
+      <button id="load-map-btn" class="tb-btn">Load</button>
+    </div>
+    <div class="tb-group">
+      <button id="undo-btn" class="tb-btn" title="Undo (Ctrl+Z)">↩</button>
+      <button id="redo-btn" class="tb-btn" title="Redo (Ctrl+Y)">↪</button>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-group">
+      <button id="import-btn" class="tb-btn">Import JSON</button>
+      <button id="export-btn" class="tb-btn primary">Export JSON</button>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-group">
+      <button id="delete-btn" class="tb-btn" title="Delete selected (Del)">🗑️ Delete</button>
+      <button id="duplicate-btn" class="tb-btn" title="Duplicate selected (Ctrl+D)">📋 Dup</button>
+      <button id="clear-all-btn" class="tb-btn" title="Clear all">Clear All</button>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+      <span style="font-size:11px;color:var(--text-dim)">Grid:</span>
+      <button id="grid-toggle" class="tb-btn" style="padding:4px 10px">⬜</button>
+      <span style="font-size:11px;color:var(--text-dim)">Snap:</span>
+      <select id="snap-select" class="tb-select" style="width:60px;padding:4px 6px">
+        <option value="0.5">0.5m</option>
+        <option value="1">1m</option>
+        <option value="2">2m</option>
+        <option value="0">Off</option>
+      </select>
+    </div>
+    <input type="file" id="file-input" accept=".json" style="display:none" />
+  </div>
+  <div class="selection-count" id="selection-count"></div>
+  <div id="palette"></div>
+  <div id="props-panel">
+    <div class="prop-header" id="prop-title">Entity</div>
+    <div id="prop-fields"></div>
+    <div class="prop-actions">
+      <button class="delete" id="prop-delete">Delete</button>
+    </div>
+  </div>
+  <div id="status">Select a tool from the palette & click on the map to place · Shift+click to multi-select</div>
+  <div id="export-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>Export Layout JSON</h2>
+      <p>Copy this JSON and save it as <code>public/assets/maps/<mapId>.layout.json</code></p>
+      <textarea id="export-text" readonly></textarea>
+      <div class="modal-actions">
+        <button id="export-close" class="tb-btn">Close</button>
+        <button id="export-copy" class="tb-btn primary">Copy</button>
+      </div>
+    </div>
+  </div>
+  <div id="import-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>Import Layout JSON</h2>
+      <p>Paste a layout JSON to load existing placed entities.</p>
+      <textarea id="import-text" placeholder="Paste JSON here..."></textarea>
+      <div class="modal-actions">
+        <button id="import-close" class="tb-btn">Cancel</button>
+        <button id="import-apply" class="tb-btn primary">Import</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/studio/index.ts"></script>
+</body>
+</html>

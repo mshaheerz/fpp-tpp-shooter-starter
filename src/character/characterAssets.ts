@@ -135,5 +135,13 @@ export async function loadCharacterAssets(definition: CharacterDefinition): Prom
   const pistolJump = clips.get('pistol_jump')
   if (pistolJump) clips.set('pistol_jump_air', buildLegsOnlyAdditive(pistolJump, 'pistol_jump_air'))
 
+  // Rifle-specific additive air layers from the new rifle jump clips.
+  const rifleJumpInPlace = clips.get('rifle_jump_in_place')
+  if (rifleJumpInPlace) clips.set('rifle_jump_in_place_air', buildLegsOnlyAdditive(rifleJumpInPlace, 'rifle_jump_in_place_air'))
+  const jump2 = clips.get('jump_2')
+  if (jump2) clips.set('jump_2_air', buildLegsOnlyAdditive(jump2, 'jump_2_air'))
+  const jumpForward = clips.get('jump_forward')
+  if (jumpForward) clips.set('jump_forward_air', buildLegsOnlyAdditive(jumpForward, 'jump_forward_air'))
+
   return { baseRoot, clips, feetOffset }
 }

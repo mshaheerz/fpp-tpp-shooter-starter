@@ -8,6 +8,7 @@ import type { CharacterPool } from '../ai/CharacterPool'
 import type { DamageSystem } from '../ai/DamageSystem'
 import type { NavGrid } from '../ai/NavGrid'
 import { TdmMatch, type TdmConfig } from '../modes/TdmMatch'
+import type { MapLayout } from '../maps/layoutTypes'
 
 export interface MatchControllerDeps {
   physics: PhysicsSystem
@@ -16,6 +17,7 @@ export interface MatchControllerDeps {
   player: Player
   enemyPool: CharacterPool
   damage: DamageSystem
+  layout?: MapLayout | null
   getNav: () => NavGrid
   setNav: (nav: NavGrid) => void
   onEnemyFire: (muzzle: Vector3, dir: Vector3) => void

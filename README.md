@@ -155,6 +155,55 @@ graph TD
     Enemy --> HUD
 ```
 
+## Map Studio — Visual Level Editor
+
+You can visually place enemies, spawn points, waypoints, and props using the **Map Studio** — a standalone 3D editor that runs in your browser alongside the dev server.
+
+```
+npm run dev        # Start the game
+npm run studio     # Prints the URL — open it in Chrome
+```
+
+Then open **http://localhost:5173/studio/**.
+
+### File structure
+The studio is a proper TypeScript project under `src/studio/` with its own HTML entry at `studio/index.html`. Vite serves it as a multi-page build (configured in `vite.config.ts`):
+
+```
+studio/
+  index.html              ← Studio HTML shell
+src/studio/
+  index.ts                ← Entry — wires everything
+  state.ts                ← Global state object
+  types.ts                ← Entity class, types
+  scene.ts                ← Three.js init, lights, grid
+  entities.ts             ← createEntity, properties panel
+  selection.ts            ← Single/multi-select, selection box
+  tools.ts                ← Active tool + ghost preview
+  palette.ts              ← Kenney catalog → palette DOM
+  undo.ts                 ← Undo/redo
+  waypoints.ts            ← Patrol route lines
+  importexport.ts         ← Export/import layout JSON
+  ui.ts                   ← Status bar
+  styles.ts               ← CSS injection
+```
+
+### What you can do
+
+| Feature | How |
+|---|---|
+| **Place enemies** | Click "Enemy Spawn" in palette → click on the map |
+| **Create patrol routes** | Click "Waypoint" → click multiple points → blue lines connect them |
+| **Place buildings/props** | Full Kenney asset catalog with search (industrial, suburban, walls, roads) |
+| **Multi-select** | Shift+click or drag a selection box |
+| **Move/scale/rotate** | Drag to move, properties panel for exact values |
+| **Undo/Redo** | Ctrl+Z / Ctrl+Y |
+| **Export as JSON** | One button → save as `public/assets/maps/<mapId>.layout.json` |
+
+The exported `.layout.json` is loaded automatically when you refresh the game — enemies spawn exactly where you placed them.
+
+For detailed instructions see `studio/README.md` (alongside the studio entry).
+
 ## How FPP and TPP stay in sync
 
 A single weapon `Object3D` is reparented when you press V:

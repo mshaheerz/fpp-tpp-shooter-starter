@@ -36,6 +36,9 @@ import { setupDevBots } from './setup/devBots'
 import { createMapLoader, createMapMenuReopener, pickInitialMap, startRequestedMatch } from './setup/mapFlow'
 import { drawHudFrame } from './setup/hudState'
 import { LightingDebugger } from './debug/LightingDebugger'
+import { loadLayout } from './maps/layoutLoader'
+import { spawnEntitiesFromLayout } from './maps/entitySpawner'
+import type { MapLayout } from './maps/layoutTypes'
 
 const FIXED_DT = 1 / 60
 const _eyeTmp = new Vector3()
@@ -182,7 +185,27 @@ async function main() {
     },
   }
 
-  const enemies: Enemy[] = setupDevBots({ physics, scene, enemyPool, damage, nav, params })
+  // Try loading a layout for this map
+  let layout: MapLayout | null = null
+  try { layout = await loadLayout(currentMapId) } catch {}
+  const enemies: Enemy[] = []
+  if (layout && layout.enemies && layout.enemies.length > 0) {
+    // Spawn enemies from layout
+    const spawned = spawnEntitiesFromLayout(
+      { physics, scene, pool: enemyPool, damage, nav },
+      layout,
+    )
+    enemies.push(...spawned.enemies)
+    // Override player spawn if layout provides one
+    if (spawned.playerSpawn) {
+      player.teleport(spawned.playerSpawn.x, spawned.playerSpawn.y, spawned.playerSpawn.z)
+    }
+    dlog(`[layout] spawned ${spawned.enemies.length} enemies from layout`)
+  } else {
+    // Legacy: free-roam bots via query param
+    const bots = setupDevBots({ physics, scene, enemyPool, damage, nav, params })
+    enemies.push(...bots)
+  }
 
   const fpsMesh = new FPSMesh()
   fpsMesh.object.visible = false
@@ -231,7 +254,7 @@ async function main() {
     physics, audio, muzzleFx, getFlashSprites: () => flashSprites, playerBody: player.body,
   })
   const matchController = createMatchController({
-    physics, scene, mapMenu, player, enemyPool, damage,
+    physics, scene, mapMenu, player, enemyPool, damage, layout,
     getNav: () => nav, setNav: (nextNav) => { nav = nextNav },
     onEnemyFire: enemyFireFx, getCurrentMapId: () => currentMapId, loadMap, buildNav,
     onMenuSelection: (selection) => applyCharacterSelection(selection.characters),

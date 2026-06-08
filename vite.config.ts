@@ -7,12 +7,15 @@ export default defineConfig({
     sourcemap: false,
     chunkSizeWarningLimit: 2100,
     rollupOptions: {
+      input: {
+        main: 'index.html',
+        studio: 'studio/index.html',
+      },
       output: {
         manualChunks(id) {
           if (id.includes("three")) {
             return "three";
           }
-
           if (id.includes("@dimforge/rapier3d-compat")) {
             return "rapier";
           }

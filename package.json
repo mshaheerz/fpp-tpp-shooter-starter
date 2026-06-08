@@ -12,7 +12,8 @@
     "convert-fbx:watch": "node scripts/convert-fbx-to-glb.cjs",
     "convert-fbx:once": "node scripts/convert-fbx-to-glb.cjs --once",
     "watch-convert": "npm run convert-fbx:watch",
-    "convert-once": "npm run convert-fbx:once"
+    "convert-once": "npm run convert-fbx:once",
+    "studio": "echo 'Open http://localhost:5173/studio/ while npm run dev is running'"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.14.0",
