@@ -88,8 +88,27 @@ async function main() {
     currentMapId = id
   })
 
+  const params = new URLSearchParams(location.search)
+
   hideLoading()
-  const initialSelection = await pickInitialMap(mapMenu, loadMap)
+
+  // Check if launched from Studio (query params)
+  const launchMap = params.get('map')
+  const launchMode = params.get('mode')
+  let initialSelection: Awaited<ReturnType<typeof pickInitialMap>>
+
+  if (launchMap) {
+    // Skip menu — launched from Studio's Run button
+    await loadMap(launchMap)
+    initialSelection = {
+      currentMapId: launchMap,
+      pendingMatch: null,
+      characterSelection: normalizeCharacterSelection({}),
+    }
+  } else {
+    initialSelection = await pickInitialMap(mapMenu, loadMap)
+  }
+
   let selectedCharacters = initialSelection.characterSelection
 
   const player = new Player(physics)
@@ -153,7 +172,6 @@ async function main() {
   await applyCharacterSelection(selectedCharacters, 'Loading character roster...')
   await preloadEnemyWeapon()
 
-  const params = new URLSearchParams(location.search)
   let navDebug: import('three').Object3D | null = null
   let navDbgEnabled = params.has('nav')
   function buildNav(): NavGrid {

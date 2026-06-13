@@ -8,8 +8,8 @@ import { updateStatus } from './ui'
 import { pushUndo } from './undo'
 import type { MapLayout } from '../maps/layoutTypes'
 
-/** Build a layout JSON from current scene and show it in the export modal */
-export function exportLayout() {
+/** Build a layout JSON string from the current scene state (no UI). */
+export function buildLayoutJSON(): string {
   const layout: Record<string, any> = { version: 1, mapId: state.mapId || 'unknown', playerSpawn: null, enemies: [], waypoints: [], props: [] }
 
   const wpGroups = new Map<number, Entity[]>()
@@ -46,8 +46,14 @@ export function exportLayout() {
   if (!layout.waypoints.length) delete layout.waypoints
   if (!layout.props.length) delete layout.props
 
+  return JSON.stringify(layout, null, 2)
+}
+
+/** Build a layout JSON from current scene and show it in the export modal */
+export function exportLayout() {
+  const json = buildLayoutJSON()
   const text = document.getElementById('export-text') as HTMLTextAreaElement
-  if (text) text.value = JSON.stringify(layout, null, 2)
+  if (text) text.value = json
   const modal = document.getElementById('export-modal')
   if (modal) modal.classList.remove('hidden')
 }

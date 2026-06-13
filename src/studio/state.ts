@@ -27,6 +27,13 @@ export const state = {
   isDragging: false,
   _dragStartPositions: null as Map<Entity, THREE.Vector3> | null,
 
+  /** Right-click rotation state */
+  isRotating: false,
+  /** Starting mouse X screen coordinate when rotation began */
+  rotationStartX: 0,
+  /** Starting sum of rotY for all selected entities */
+  rotationStartAngles: null as Map<Entity, number> | null,
+
   nextWaypointGroupId: 1,
   ghostMesh: null as THREE.Mesh | null,
   snapSize: 0.5,
@@ -37,6 +44,12 @@ export const state = {
   undoStack: [] as any[][],
   redoStack: [] as any[][],
   undoDepth: 50,
+
+  /** Flat ground plane for Kenney-based maps */
+  _flatGround: null as THREE.Mesh | null,
+
+  /** Debounce flag for waypoint line rebuilds */
+  _waypointsDirty: false,
 }
 
 export const ASSETS_BASE = '/assets/kenney/'

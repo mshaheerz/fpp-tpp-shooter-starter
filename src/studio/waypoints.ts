@@ -16,6 +16,16 @@ export function clearWaypointLines() {
 
 /** Rebuild all waypoint connector lines based on current waypoint order */
 export function rebuildWaypointLines() {
+  if (state.isDragging) {
+    // Defer rebuild to avoid geometry thrash during drag
+    state._waypointsDirty = true
+    return
+  }
+  _rebuildNow()
+}
+
+/** Actually perform the rebuild (called immediately or after drag ends). */
+function _rebuildNow() {
   clearWaypointLines()
   const wps = state.entities.filter(e => e.type === 'waypoint')
   const groups = new Map<number, Entity[]>()
@@ -37,4 +47,10 @@ export function rebuildWaypointLines() {
       _waypointLines.push(line)
     }
   }
+  state._waypointsDirty = false
+}
+
+/** After drag ends, flush any queued rebuild. Called from index.ts onPointerUp. */
+export function flushWaypointRebuild() {
+  if (state._waypointsDirty) _rebuildNow()
 }

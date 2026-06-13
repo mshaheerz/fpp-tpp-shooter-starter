@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "mapId": "shootRange",
+  "playerSpawn": {
+    "x": 27.5,
+    "y": 0.5,
+    "z": 23
+  },
+  "enemies": [
+    {
+      "x": -20.5,
+      "z": 4.5,
+      "y": 0.5,
+      "rotY": 0
+    },
+    {
+      "x": -25,
+      "z": -13.5,
+      "y": 0.5,
+      "rotY": 0
+    },
+    {
+      "x": -23.5,
+      "z": -1.5,
+      "y": 0.5,
+      "rotY": 0
+    }
+  ],
+  "waypoints": [
+    {
+      "id": 7,
+      "points": [
+        {
+          "x": -22.5,
+          "y": 0.5,
+          "z": -1.5
+        },
+        {
+          "x": -15,
+          "y": 0.5,
+          "z": -3.5
+        },
+        {
+          "x": -6,
+          "y": 0.5,
+          "z": -3.5
+        },
+        {
+          "x": 4,
+          "y": 0.5,
+          "z": -9
+        },
+        {
+          "x": 19,
+          "y": 0.5,
+          "z": -4
+        },
+        {
+          "x": 22,
+          "y": 0.5,
+          "z": 4
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "points": [
+        {
+          "x": 25,
+          "y": 0.5,
+          "z": 10.5
+        },
+        {
+          "x": 24.5,
+          "y": 0.5,
+          "z": 22.5
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "asset": "industrial/Models/GLB format/building-c.glb",
+      "x": -5.5,
+      "z": 6,
+      "y": 0.5,
+      "rotY": 0
+    },
+    {
+      "asset": "industrial/Models/GLB format/building-c.glb",
+      "x": 2,
+      "z": -3.5,
+      "y": 0.5,
+      "rotY": 0
+    },
+    {
+      "asset": "industrial/Models/GLB format/building-c.glb",
+      "x": 7,
+      "z": 9,
+      "y": 0.5,
+      "rotY": 0
+    },
+    {
+      "asset": "prototype/Models/GLB format/wall.glb",
+      "x": -14.5,
+      "z": 0.5,
+      "y": 0.5,
+      "rotY": 0
+    },
+    {
+      "asset": "prototype/Models/GLB format/wall.glb",
+      "x": 9,
+      "z": -1,
+      "y": 0.5,
+      "rotY": 0
+    },
+    {
+      "asset": "prototype/Models/GLB format/wall.glb",
+      "x": 3,
+      "z": 3,
+      "y": 0.5,
+      "rotY": 0
+    },
+    {
+      "asset": "prototype/Models/GLB format/wall.glb",
+      "x": 3.5,
+      "z": 4,
+      "y": 0.5,
+      "rotY": 0
+    },
+    {
+      "asset": "prototype/Models/GLB format/wall.glb",
+      "x": 3,
+      "z": 5.5,
+      "y": 0.5,
+      "rotY": 0
+    },
+    {
+      "asset": "prototype/Models/GLB format/wall.glb",
+      "x": 3,
+      "z": 5,
+      "y": 0.5,
+      "rotY": 0
+    }
+  ]
+}

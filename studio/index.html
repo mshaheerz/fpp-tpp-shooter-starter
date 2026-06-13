@@ -14,14 +14,15 @@
     <div class="tb-group">
       <select id="map-select" class="tb-select">
         <option value="">— Load a map —</option>
-        <option value="shootRange">Shooting Range</option>
-        <option value="suburbanStreet">Suburban Street</option>
-        <option value="industrialYard">Industrial Yard</option>
-        <option value="ghostCity">Ghost City</option>
-        <option value="deathmatch1">Team Deathmatch 1</option>
-        <option value="deathmatch2">Team Deathmatch 2</option>
+        <option value="shootRange" data-type="canvas">🎨 Shooting Range</option>
+        <option value="suburbanStreet" data-type="canvas">🎨 Suburban Street</option>
+        <option value="industrialYard" data-type="canvas">🎨 Industrial Yard</option>
+        <option value="ghostCity" data-type="map">🏙️ Ghost City</option>
+        <option value="deathmatch1" data-type="map">🏙️ Team Deathmatch 1</option>
+        <option value="deathmatch2" data-type="map">🏙️ Team Deathmatch 2</option>
       </select>
       <button id="load-map-btn" class="tb-btn">Load</button>
+      <span id="map-type-badge" style="font-size:10px;color:var(--text-dim);margin-left:6px"></span>
     </div>
     <div class="tb-group">
       <button id="undo-btn" class="tb-btn" title="Undo (Ctrl+Z)">↩</button>
@@ -30,7 +31,8 @@
     <div class="tb-sep"></div>
     <div class="tb-group">
       <button id="import-btn" class="tb-btn">Import JSON</button>
-      <button id="export-btn" class="tb-btn primary">Export JSON</button>
+      <button id="export-btn" class="tb-btn">Export JSON</button>
+      <button id="run-btn" class="tb-btn primary" title="Save & play-test (saves to IndexedDB + opens game)">▶ Run</button>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -39,6 +41,7 @@
       <button id="clear-all-btn" class="tb-btn" title="Clear all">Clear All</button>
     </div>
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+      <span id="save-indicator" style="font-size:11px;color:var(--accent);display:none">💾 Saved</span>
       <span style="font-size:11px;color:var(--text-dim)">Grid:</span>
       <button id="grid-toggle" class="tb-btn" style="padding:4px 10px">⬜</button>
       <span style="font-size:11px;color:var(--text-dim)">Snap:</span>
@@ -67,8 +70,9 @@
       <p>Copy this JSON and save it as <code>public/assets/maps/<mapId>.layout.json</code></p>
       <textarea id="export-text" readonly></textarea>
       <div class="modal-actions">
+        <button id="export-save" class="tb-btn primary">Save & Run</button>
+        <button id="export-copy" class="tb-btn">Copy</button>
         <button id="export-close" class="tb-btn">Close</button>
-        <button id="export-copy" class="tb-btn primary">Copy</button>
       </div>
     </div>
   </div>
