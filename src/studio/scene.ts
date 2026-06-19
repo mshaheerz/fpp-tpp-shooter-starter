@@ -1,11 +1,13 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { state } from './state'
-import { clearAllEntities } from './entities'
-import { clearWaypointLines } from './waypoints'
+import { clearAllEntities, updatePropertiesPanel } from './entities'
+import { clearWaypointLines, rebuildWaypointLines } from './waypoints'
 import { updateStatus } from './ui'
 import { pushUndo } from './undo'
+import type { Entity } from './types'
 
 export function initScene() {
   const container = document.getElementById('viewport')!
@@ -30,6 +32,16 @@ export function initScene() {
 
   const controls = new OrbitControls(camera, renderer.domElement)
   controls.target.set(0, 0, 0)
+  // Godot/VS-style: middle-click orbits camera, left-click is entity select/drag
+  controls.mouseButtons = {
+    LEFT: null as any,
+    MIDDLE: THREE.MOUSE.ROTATE,
+    RIGHT: null as any,
+  }
+  controls.touches = {
+    ONE: THREE.TOUCH.PAN,
+    TWO: THREE.TOUCH.DOLLY_PAN,
+  }
   controls.update()
   state.controls = controls
 
@@ -67,6 +79,42 @@ export function initScene() {
   selBox.visible = false
   scene.add(selBox)
   state.selBoxMesh = selBox
+
+  // Transform Controls (gizmo) — attached to entity meshes on selection
+  const tc = new TransformControls(camera, renderer.domElement)
+  tc.setMode('translate')
+  tc.setSize(0.8)
+  state.transformControls = tc
+  // The gizmo's visual helper (arrows/rings/boxes) MUST be in the scene
+  scene.add(tc.getHelper())
+
+  // When gizmo is manipulating, disable OrbitControls (gizmo handles its own input)
+  tc.addEventListener('dragging-changed', (e: any) => {
+    state.transformDragging = e.value
+    state.controls!.enabled = !e.value
+  })
+
+  // On transform change, sync entity properties
+  tc.addEventListener('objectChange', () => {
+    const obj = tc.object
+    if (!obj) return
+    const entity = (obj as any).userData?.entity as Entity | undefined
+    if (!entity) return
+    entity.position.copy(obj.position)
+    entity.rotY = obj.rotation.y
+    if (obj.scale.x > 0) entity.scaleVal = obj.scale.x
+    updatePropertiesPanel()
+    rebuildWaypointLines()
+  })
+
+  // Push undo when gizmo finishes a transform
+  let _transformUndoTimeout: any = null
+  tc.addEventListener('mouseUp', () => {
+    clearTimeout(_transformUndoTimeout)
+    _transformUndoTimeout = setTimeout(() => {
+      if (!state.transformDragging) pushUndo()
+    }, 100)
+  })
 
   renderer.domElement.addEventListener('contextmenu', e => e.preventDefault())
 
@@ -143,7 +191,8 @@ export async function loadMap(mapId: string) {
   }
   clearAllEntities()
   state.mapId = mapId
-  state.undoStack = []; state.redoStack = []
+  // Seed an empty baseline so the first action is undoable back to a clean map.
+  state.undoStack = [[]]; state.redoStack = []
   updateUndoButtons()
 
   // Remove any existing flat ground if we had one
@@ -266,7 +315,7 @@ function addFlatGround() {
 function updateUndoButtons() {
   const u = document.getElementById('undo-btn') as HTMLButtonElement
   const r = document.getElementById('redo-btn') as HTMLButtonElement
-  if (u) u.disabled = state.undoStack.length === 0
+  if (u) u.disabled = state.undoStack.length <= 1
   if (r) r.disabled = state.redoStack.length === 0
 }
 

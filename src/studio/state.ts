@@ -27,7 +27,14 @@ export const state = {
   isDragging: false,
   _dragStartPositions: null as Map<Entity, THREE.Vector3> | null,
 
-  /** Right-click rotation state */
+  /** Transform Controls (gizmo) */
+  transformControls: null as any | null,
+  /** Current transform mode: 'translate' | 'rotate' | 'scale' */
+  transformMode: 'translate' as 'translate' | 'rotate' | 'scale',
+  /** If true, OrbitControls are suppressed by the gizmo */
+  transformDragging: false,
+
+  /** Middle-click rotation state */
   isRotating: false,
   /** Starting mouse X screen coordinate when rotation began */
   rotationStartX: 0,

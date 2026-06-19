@@ -22,6 +22,6 @@ export function updateStatus() {
 export function updateUndoButtons() {
   const u = document.getElementById('undo-btn') as HTMLButtonElement | null
   const r = document.getElementById('redo-btn') as HTMLButtonElement | null
-  if (u) u.disabled = state.undoStack.length === 0
+  if (u) u.disabled = state.undoStack.length <= 1
   if (r) r.disabled = state.redoStack.length === 0
 }

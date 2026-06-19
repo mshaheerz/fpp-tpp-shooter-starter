@@ -168,8 +168,8 @@ function createEntityMesh(type: string): THREE.Object3D {
     const mat = new THREE.MeshStandardMaterial({ color: 0x42a5f5, emissive: 0x42a5f5, emissiveIntensity: 0.15 })
     const mesh = new THREE.Mesh(geo, mat); mesh.position.y = 0.3; return mesh
   }
-  // Props — placeholder cube
+  // Props — solid translucent placeholder cube shown only until the GLB loads
   const geo = new THREE.BoxGeometry(0.6, 0.6, 0.6)
-  const mat = new THREE.MeshStandardMaterial({ color: 0x888888, transparent: true, opacity: 0.7, wireframe: true })
+  const mat = new THREE.MeshStandardMaterial({ color: 0x6a8fcf, emissive: 0x223355, transparent: true, opacity: 0.55 })
   const mesh = new THREE.Mesh(geo, mat); mesh.position.y = 0.3; return mesh
 }
