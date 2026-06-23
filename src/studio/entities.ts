@@ -93,9 +93,14 @@ export async function loadPropGLB(entity: Entity, url: string, skipUndo = false)
 
     // Rest the model's base on the placement height (props otherwise float/clip),
     // matching the runtime builder's ground-snap behaviour.
-    model.updateMatrixWorld(true)
-    const bb = new THREE.Box3().setFromObject(model)
-    if (Number.isFinite(bb.min.y)) model.position.y += pos.y - bb.min.y
+    if (!entity.userData.heightAdjusted) {
+      model.updateMatrixWorld(true)
+      const bb = new THREE.Box3().setFromObject(model)
+      if (Number.isFinite(bb.min.y)) {
+        model.position.y += pos.y - bb.min.y
+        entity.userData.heightAdjusted = true
+      }
+    }
 
     state.scene!.remove(old)
     disposeObject(old)
