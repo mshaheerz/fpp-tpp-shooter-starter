@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { state } from './state'
 import { Entity } from './types'
-import { updatePropertiesPanel, updateSelectionCount } from './entities'
+import { updatePropertiesPanel, updateSelectionCount, updateInspector, updateHierarchy } from './entities'
 import { updateStatus } from './ui'
 
 /** Set the single selected entity (clears multi-select) */
@@ -10,7 +10,21 @@ export function selectEntity(entity: Entity | null) {
   state.selected = entity
   if (entity) entity.select(true)
   updatePropertiesPanel()
+  updateInspector()
+  updateHierarchy()
   updateStatus()
+
+  // Attach/detach transform gizmo
+  const tc = state.transformControls
+  if (tc) {
+    if (entity) {
+      tc.attach(entity._mesh)
+      tc.visible = true
+    } else {
+      tc.detach()
+      tc.visible = false
+    }
+  }
 }
 
 /** Toggle an entity in/out of the multi-select set */
@@ -26,6 +40,8 @@ export function toggleMultiSelect(entity: Entity) {
     state.multiSelected.add(state.selected)
   }
   updateSelectionCount()
+  updateInspector()
+  updateHierarchy()
 }
 
 /** Clear the multi-select set */
@@ -35,6 +51,8 @@ export function clearMultiSelection() {
   }
   state.multiSelected.clear()
   updateSelectionCount()
+  updateInspector()
+  updateHierarchy()
 }
 
 /** Update the rectangular selection box preview */
@@ -77,6 +95,8 @@ export function selectEntitiesInBox(start: THREE.Vector3, end: THREE.Vector3) {
   }
   if (state.selBoxMesh) state.selBoxMesh.visible = false
   updateSelectionCount()
+  updateInspector()
+  updateHierarchy()
 }
 
 /** Find the entity under the pointer (via raycast) */

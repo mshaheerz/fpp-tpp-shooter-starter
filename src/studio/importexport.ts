@@ -8,8 +8,8 @@ import { updateStatus } from './ui'
 import { pushUndo } from './undo'
 import type { MapLayout } from '../maps/layoutTypes'
 
-/** Build a layout JSON from current scene and show it in the export modal */
-export function exportLayout() {
+/** Build a layout JSON string from the current scene state (no UI). */
+export function buildLayoutJSON(): string {
   const layout: Record<string, any> = { version: 1, mapId: state.mapId || 'unknown', playerSpawn: null, enemies: [], waypoints: [], props: [] }
 
   const wpGroups = new Map<number, Entity[]>()
@@ -46,8 +46,14 @@ export function exportLayout() {
   if (!layout.waypoints.length) delete layout.waypoints
   if (!layout.props.length) delete layout.props
 
+  return JSON.stringify(layout, null, 2)
+}
+
+/** Build a layout JSON from current scene and show it in the export modal */
+export function exportLayout() {
+  const json = buildLayoutJSON()
   const text = document.getElementById('export-text') as HTMLTextAreaElement
-  if (text) text.value = JSON.stringify(layout, null, 2)
+  if (text) text.value = json
   const modal = document.getElementById('export-modal')
   if (modal) modal.classList.remove('hidden')
 }
@@ -67,11 +73,11 @@ export function importLayout(json: string) {
   clearAll()
 
   if (layout.playerSpawn) {
-    createEntity('playerSpawn', new THREE.Vector3(layout.playerSpawn.x, layout.playerSpawn.y ?? 0.5, layout.playerSpawn.z))
+    createEntity('playerSpawn', new THREE.Vector3(layout.playerSpawn.x, layout.playerSpawn.y ?? 0.5, layout.playerSpawn.z), 0, true)
   }
   if (layout.enemies) {
     for (const e of layout.enemies) {
-      const entity = createEntity('enemySpawn', new THREE.Vector3(e.x, e.y ?? 0.5, e.z), e.rotY || 0)
+      const entity = createEntity('enemySpawn', new THREE.Vector3(e.x, e.y ?? 0.5, e.z), e.rotY || 0, true)
       if (e.hp) entity.userData.hp = e.hp
       if (e.patrolId) entity.userData.patrolId = e.patrolId
       if (e.territoryRadius) entity.userData.territoryRadius = e.territoryRadius
@@ -81,7 +87,7 @@ export function importLayout(json: string) {
     for (const route of layout.waypoints) {
       let first = true
       for (const pt of route.points) {
-        const entity = createEntity('waypoint', new THREE.Vector3(pt.x, pt.y ?? 0.5, pt.z))
+        const entity = createEntity('waypoint', new THREE.Vector3(pt.x, pt.y ?? 0.5, pt.z), 0, true)
         entity.userData.groupId = route.id
         entity.userData.order = first ? route.points.length : (entity.userData.order || 1)
         first = false
@@ -92,8 +98,9 @@ export function importLayout(json: string) {
   }
   if (layout.props) {
     for (const p of layout.props) {
-      const type = p.asset.includes('detail-tank') ? 'propBarrel' : p.asset.includes('target') ? 'propTarget' : 'prop' + p.asset.replace(/\.glb$/, '').replace(/\//g, '/')
-      const entity = createEntity(type, new THREE.Vector3(p.x, p.y ?? 0.5, p.z), p.rotY || 0)
+      const type = p.asset.includes('detail-tank') ? 'propBarrel' : p.asset.includes('target') ? 'propTarget' : 'prop' + p.asset
+      // Pass the saved asset explicitly so the GLB actually loads (keeps `.glb`).
+      const entity = createEntity(type, new THREE.Vector3(p.x, p.y ?? 0.5, p.z), p.rotY || 0, true, p.asset)
       entity.userData.asset = p.asset
       if (p.scale) entity.setScale(p.scale)
       if (p.desiredHeight) entity.userData.desiredHeight = p.desiredHeight

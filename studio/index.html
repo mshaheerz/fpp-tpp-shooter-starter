@@ -8,37 +8,49 @@
 </head>
 <body>
   <div id="viewport"></div>
+
+  <!-- Top Toolbar -->
   <div id="toolbar">
     <div class="logo">Map <span>Studio</span></div>
     <div class="tb-sep"></div>
     <div class="tb-group">
       <select id="map-select" class="tb-select">
         <option value="">— Load a map —</option>
-        <option value="shootRange">Shooting Range</option>
-        <option value="suburbanStreet">Suburban Street</option>
-        <option value="industrialYard">Industrial Yard</option>
-        <option value="ghostCity">Ghost City</option>
-        <option value="deathmatch1">Team Deathmatch 1</option>
-        <option value="deathmatch2">Team Deathmatch 2</option>
+        <option value="shootRange" data-type="canvas">🎨 Shooting Range</option>
+        <option value="suburbanStreet" data-type="canvas">🎨 Suburban Street</option>
+        <option value="industrialYard" data-type="canvas">🎨 Industrial Yard</option>
+        <option value="ghostCity" data-type="map">🏙️ Ghost City</option>
+        <option value="deathmatch1" data-type="map">🏙️ Team Deathmatch 1</option>
+        <option value="deathmatch2" data-type="map">🏙️ Team Deathmatch 2</option>
       </select>
       <button id="load-map-btn" class="tb-btn">Load</button>
+      <span id="map-type-badge"></span>
     </div>
+    <div class="tb-sep"></div>
     <div class="tb-group">
       <button id="undo-btn" class="tb-btn" title="Undo (Ctrl+Z)">↩</button>
       <button id="redo-btn" class="tb-btn" title="Redo (Ctrl+Y)">↪</button>
     </div>
     <div class="tb-sep"></div>
-    <div class="tb-group">
-      <button id="import-btn" class="tb-btn">Import JSON</button>
-      <button id="export-btn" class="tb-btn primary">Export JSON</button>
+    <div class="tb-group" id="transform-group">
+      <button id="mode-translate" class="tb-btn active" title="Move (W)">↕ Move</button>
+      <button id="mode-rotate" class="tb-btn" title="Rotate (E)">↻ Rotate</button>
+      <button id="mode-scale" class="tb-btn" title="Scale (R)">⇔ Scale</button>
+      <button id="focus-btn" class="tb-btn" title="Focus on selected (F)">◎ Focus</button>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
       <button id="delete-btn" class="tb-btn" title="Delete selected (Del)">🗑️ Delete</button>
       <button id="duplicate-btn" class="tb-btn" title="Duplicate selected (Ctrl+D)">📋 Dup</button>
-      <button id="clear-all-btn" class="tb-btn" title="Clear all">Clear All</button>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-group">
+      <button id="import-btn" class="tb-btn">Import JSON</button>
+      <button id="export-btn" class="tb-btn">Export JSON</button>
+      <button id="run-btn" class="tb-btn primary">▶ Run</button>
     </div>
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+      <span id="save-indicator" style="font-size:11px;color:var(--accent);display:none">💾 Saved</span>
       <span style="font-size:11px;color:var(--text-dim)">Grid:</span>
       <button id="grid-toggle" class="tb-btn" style="padding:4px 10px">⬜</button>
       <span style="font-size:11px;color:var(--text-dim)">Snap:</span>
@@ -51,24 +63,41 @@
     </div>
     <input type="file" id="file-input" accept=".json" style="display:none" />
   </div>
-  <div class="selection-count" id="selection-count"></div>
-  <div id="palette"></div>
-  <div id="props-panel">
-    <div class="prop-header" id="prop-title">Entity</div>
-    <div id="prop-fields"></div>
-    <div class="prop-actions">
-      <button class="delete" id="prop-delete">Delete</button>
+
+  <!-- Left Panel: Palette + Scene Hierarchy -->
+  <div id="left-panel">
+    <div class="panel-tabs">
+      <button class="panel-tab active" data-tab="palette">🎨 Assets</button>
+      <button class="panel-tab" data-tab="hierarchy">📋 Scene</button>
+    </div>
+    <div id="palette" class="panel-content active"></div>
+    <div id="hierarchy" class="panel-content">
+      <div class="hierarchy-header">Scene Entities <span id="entity-count">(0)</span></div>
+      <div id="hierarchy-list"></div>
     </div>
   </div>
+
+  <!-- Right Panel: Inspector -->
+  <div id="inspector-panel">
+    <div class="inspector-header">Inspector</div>
+    <div id="inspector-content">
+      <div class="inspector-empty">Select an entity to inspect</div>
+    </div>
+  </div>
+
+  <div class="selection-count" id="selection-count"></div>
   <div id="status">Select a tool from the palette & click on the map to place · Shift+click to multi-select</div>
+
+  <!-- Modals -->
   <div id="export-modal" class="modal-overlay hidden">
     <div class="modal">
       <h2>Export Layout JSON</h2>
       <p>Copy this JSON and save it as <code>public/assets/maps/<mapId>.layout.json</code></p>
       <textarea id="export-text" readonly></textarea>
       <div class="modal-actions">
+        <button id="export-save" class="tb-btn primary">Save & Run</button>
+        <button id="export-copy" class="tb-btn">Copy</button>
         <button id="export-close" class="tb-btn">Close</button>
-        <button id="export-copy" class="tb-btn primary">Copy</button>
       </div>
     </div>
   </div>
@@ -83,6 +112,7 @@
       </div>
     </div>
   </div>
+
   <script type="module" src="/src/studio/index.ts"></script>
 </body>
 </html>

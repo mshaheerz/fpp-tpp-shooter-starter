@@ -1,17 +1,19 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { state } from './state'
-import { clearAllEntities } from './entities'
-import { clearWaypointLines } from './waypoints'
+import { clearAllEntities, updatePropertiesPanel } from './entities'
+import { clearWaypointLines, rebuildWaypointLines } from './waypoints'
 import { updateStatus } from './ui'
 import { pushUndo } from './undo'
+import type { Entity } from './types'
 
 export function initScene() {
   const container = document.getElementById('viewport')!
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(0x1a1e2a)
-  scene.fog = new THREE.Fog(0x1a1e2a, 80, 200)
+  scene.fog = new THREE.Fog(0x1a1e2a, 150, 500)
   state.scene = scene
 
   const camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 500)
@@ -30,6 +32,16 @@ export function initScene() {
 
   const controls = new OrbitControls(camera, renderer.domElement)
   controls.target.set(0, 0, 0)
+  // Godot/VS-style: middle-click orbits camera, left-click is entity select/drag
+  controls.mouseButtons = {
+    LEFT: null as any,
+    MIDDLE: THREE.MOUSE.ROTATE,
+    RIGHT: null as any,
+  }
+  controls.touches = {
+    ONE: THREE.TOUCH.PAN,
+    TWO: THREE.TOUCH.DOLLY_PAN,
+  }
   controls.update()
   state.controls = controls
 
@@ -67,6 +79,42 @@ export function initScene() {
   selBox.visible = false
   scene.add(selBox)
   state.selBoxMesh = selBox
+
+  // Transform Controls (gizmo) — attached to entity meshes on selection
+  const tc = new TransformControls(camera, renderer.domElement)
+  tc.setMode('translate')
+  tc.setSize(0.8)
+  state.transformControls = tc
+  // The gizmo's visual helper (arrows/rings/boxes) MUST be in the scene
+  scene.add(tc.getHelper())
+
+  // When gizmo is manipulating, disable OrbitControls (gizmo handles its own input)
+  tc.addEventListener('dragging-changed', (e: any) => {
+    state.transformDragging = e.value
+    state.controls!.enabled = !e.value
+  })
+
+  // On transform change, sync entity properties
+  tc.addEventListener('objectChange', () => {
+    const obj = tc.object
+    if (!obj) return
+    const entity = (obj as any).userData?.entity as Entity | undefined
+    if (!entity) return
+    entity.position.copy(obj.position)
+    entity.rotY = obj.rotation.y
+    if (obj.scale.x > 0) entity.scaleVal = obj.scale.x
+    updatePropertiesPanel()
+    rebuildWaypointLines()
+  })
+
+  // Push undo when gizmo finishes a transform
+  let _transformUndoTimeout: any = null
+  tc.addEventListener('mouseUp', () => {
+    clearTimeout(_transformUndoTimeout)
+    _transformUndoTimeout = setTimeout(() => {
+      if (!state.transformDragging) pushUndo()
+    }, 100)
+  })
 
   renderer.domElement.addEventListener('contextmenu', e => e.preventDefault())
 
@@ -143,45 +191,131 @@ export async function loadMap(mapId: string) {
   }
   clearAllEntities()
   state.mapId = mapId
-  state.undoStack = []; state.redoStack = []
+  // Seed an empty baseline so the first action is undoable back to a clean map.
+  state.undoStack = [[]]; state.redoStack = []
   updateUndoButtons()
 
+  // Remove any existing flat ground if we had one
+  if (state._flatGround) {
+    state.scene!.remove(state._flatGround)
+    state._flatGround = null
+  }
+
   const mapUrls: Record<string, string> = {
-    shootRange: '/assets/maps/ghost_city.glb', suburbanStreet: '/assets/maps/ghost_city.glb',
-    industrialYard: '/assets/maps/ghost_city.glb', ghostCity: '/assets/maps/ghost_city.glb',
+    shootRange: '/assets/maps/ghost_city.glb',
+    suburbanStreet: '/assets/maps/ghost_city.glb',
+    industrialYard: '/assets/maps/ghost_city.glb',
+    ghostCity: '/assets/maps/ghost_city.glb',
     deathmatch1: '/assets/maps/lowpoly__fps__tdm__game__map_by_resoforge.glb',
     deathmatch2: '/assets/maps/RP_MAP_1.glb',
   }
+
+  // For Kenney-based maps (no monolithic GLB): create a flat ground + load layout
   if (mapId === 'shootRange' || mapId === 'suburbanStreet' || mapId === 'industrialYard') {
-    updateStatusBarMessage(`Loaded "${mapId}" — use palette to place buildings.`)
+    try {
+      // Add a flat ground plane so the user can see a surface
+      addFlatGround()
+      state.controls!.target.set(0, 0, 0)
+      state.camera!.position.set(20, 15, 20)
+      state.controls!.update()
+      updateStatusBarMessage(`Loaded "${mapId}" — ground ready, place props from palette.`)
+    } catch (e) {
+      console.error('Failed to init map:', e)
+      updateStatusBarMessage(`Failed to init "${mapId}"`)
+    }
     return
   }
+
+  // For monolithic GLB maps: load the GLB
   const url = mapUrls[mapId]
   if (!url) { updateStatusBarMessage(`No map data for "${mapId}"`); return }
+
+  updateStatusBarMessage(`Loading "${mapId}"...`)
   try {
     const loader = new GLTFLoader()
     const gltf = await loader.loadAsync(url)
     const root = gltf.scene
-    root.traverse(o => { if ((o as THREE.Mesh).isMesh) { (o as THREE.Mesh).castShadow = true; (o as THREE.Mesh).receiveShadow = true } })
+
+    // Enable shadows on all meshes
+    root.traverse(o => {
+      if ((o as THREE.Mesh).isMesh) {
+        (o as THREE.Mesh).castShadow = true
+        ;(o as THREE.Mesh).receiveShadow = true
+      }
+    })
+
+    // Remove empty Armature/Bone nodes (from Blender export) that have no
+    // children and are not meshes. These can interfere with rendering.
+    // But DO NOT detach meshes from their parents — skinned meshes need
+    // their bone hierarchy to render correctly.
+    const empties: THREE.Object3D[] = []
+    root.traverse(o => {
+      if (o.type === 'Bone' || o.type === 'Armature') {
+        // Only remove if it has no mesh descendants
+        let hasMeshDescendant = false
+        o.traverse(c => { if ((c as THREE.Mesh).isMesh) hasMeshDescendant = true })
+        if (!hasMeshDescendant) empties.push(o)
+      }
+    })
+    for (const o of empties) {
+      o.removeFromParent()
+    }
+
+    // Count meshes for the status message
+    let meshCount = 0
+    root.traverse(o => { if ((o as THREE.Mesh).isMesh) meshCount++ })
+
+    if (meshCount === 0) {
+      updateStatusBarMessage(`"${mapId}" loaded but contains no visible meshes.`)
+      return
+    }
+
+    // Add the entire scene tree as-is (preserving parent/child relationships
+    // for skins, transforms, and groups)
     state.scene!.add(root)
     state.mapRoot = root
+
+    // Compute bounding box and adjust camera
     const box = new THREE.Box3().setFromObject(root)
-    const center = new THREE.Vector3(), size = new THREE.Vector3()
-    box.getCenter(center); box.getSize(size)
-    state.controls!.target.copy(center)
-    state.camera!.position.set(center.x + Math.max(size.x, size.z) * 0.8, Math.max(size.x, size.z) * 0.6 + 5, center.z + Math.max(size.x, size.z) * 0.8)
-    state.controls!.update()
-    updateStatusBarMessage(`Loaded "${mapId}"`)
+    if (!box.isEmpty()) {
+      const center = new THREE.Vector3(), size = new THREE.Vector3()
+      box.getCenter(center); box.getSize(size)
+      state.controls!.target.copy(center)
+      const maxDim = Math.max(size.x, size.z, 1)
+      const dist = Math.max(maxDim * 0.8, 10)
+      state.camera!.position.set(center.x + dist, maxDim * 0.6 + 5, center.z + dist)
+      state.controls!.update()
+      updateStatusBarMessage(`Loaded "${mapId}" — ${meshCount} meshes, ${Math.round(maxDim)}m`)
+    } else {
+      updateStatusBarMessage(`Loaded "${mapId}" — ${meshCount} meshes (empty bounding box)`)
+    }
   } catch (e) {
     console.error('Failed to load map:', e)
-    updateStatusBarMessage(`Failed to load "${mapId}"`)
+    updateStatusBarMessage(`Failed to load "${mapId}": ${(e as Error).message}`)
   }
+}
+
+/** Add a flat ground plane for Kenney-based maps (no monolithic GLB). */
+function addFlatGround() {
+  const geo = new THREE.PlaneGeometry(60, 60)
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x2a3040,
+    roughness: 0.9,
+    metalness: 0.0,
+    side: THREE.DoubleSide,
+  })
+  const mesh = new THREE.Mesh(geo, mat)
+  mesh.rotation.x = -Math.PI / 2
+  mesh.position.y = -0.01
+  mesh.receiveShadow = true
+  state.scene!.add(mesh)
+  state._flatGround = mesh
 }
 
 function updateUndoButtons() {
   const u = document.getElementById('undo-btn') as HTMLButtonElement
   const r = document.getElementById('redo-btn') as HTMLButtonElement
-  if (u) u.disabled = state.undoStack.length === 0
+  if (u) u.disabled = state.undoStack.length <= 1
   if (r) r.disabled = state.redoStack.length === 0
 }
 

@@ -1,0 +1,683 @@
+{
+  "version": 1,
+  "mapId": "urbanArena",
+  "playerSpawn": { "x": 0, "y": 0.5, "z": 9 },
+  "enemies": [
+    { "x": 6, "z": 6, "rotY": 3.14, "patrolId": 1, "territoryRadius": 10 },
+    { "x": -6, "z": 6, "rotY": 3.14, "patrolId": 1, "territoryRadius": 10 },
+    { "x": 7, "z": -5, "rotY": 0, "patrolId": 2, "territoryRadius": 8 },
+    { "x": -7, "z": -6, "rotY": 0, "territoryRadius": 8 },
+    { "x": 0, "z": -7, "rotY": 0, "territoryRadius": 6 }
+  ],
+  "waypoints": [
+    {
+      "id": 1,
+      "points": [
+        { "x": 6, "z": 6 },
+        { "x": 3, "z": 4 },
+        { "x": -3, "z": 4 },
+        { "x": -6, "z": 6 },
+        { "x": -4, "z": 2 },
+        { "x": 0, "z": 3 },
+        { "x": 4, "z": 2 }
+      ]
+    },
+    {
+      "id": 2,
+      "points": [
+        { "x": 7, "z": -5 },
+        { "x": 4, "z": -3 },
+        { "x": 0, "z": -4 },
+        { "x": -4, "z": -3 },
+        { "x": -7, "z": -6 }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -8, "z": -8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -8, "z": -6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -8, "z": -4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -8, "z": -2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -8, "z": 0, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -8, "z": 2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -8, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -8, "z": 6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -8, "z": 8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -6, "z": -8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -6, "z": -6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -6, "z": -4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -6, "z": -2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -6, "z": 0, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -6, "z": 2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -6, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -6, "z": 6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -6, "z": 8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -4, "z": -8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -4, "z": -6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -4, "z": -4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -4, "z": -2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -4, "z": 0, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -4, "z": 2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -4, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -4, "z": 6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -4, "z": 8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -2, "z": -8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -2, "z": -6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -2, "z": -4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -2, "z": -2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -2, "z": 0, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -2, "z": 2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -2, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -2, "z": 6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": -2, "z": 8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 0, "z": -8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 0, "z": -6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 0, "z": -4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 0, "z": -2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 0, "z": 0, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 0, "z": 2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 0, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 0, "z": 6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 0, "z": 8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 2, "z": -8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 2, "z": -6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 2, "z": -4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 2, "z": -2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 2, "z": 0, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 2, "z": 2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 2, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 2, "z": 6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 2, "z": 8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 4, "z": -8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 4, "z": -6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 4, "z": -4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 4, "z": -2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 4, "z": 0, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 4, "z": 2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 4, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 4, "z": 6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 4, "z": 8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 6, "z": -8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 6, "z": -6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 6, "z": -4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 6, "z": -2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 6, "z": 0, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 6, "z": 2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 6, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 6, "z": 6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 6, "z": 8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 8, "z": -8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 8, "z": -6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 8, "z": -4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 8, "z": -2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 8, "z": 0, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 8, "z": 2, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 8, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 8, "z": 6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/tile-low.glb",
+      "x": 8, "z": 8, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-crossroad.glb",
+      "x": 0, "z": 0, "y": 0.01, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-straight.glb",
+      "x": 0, "z": 2, "y": 0.01, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-straight.glb",
+      "x": 0, "z": -2, "y": 0.01, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-straight.glb",
+      "x": 2, "z": 0, "y": 0.01, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-straight.glb",
+      "x": -2, "z": 0, "y": 0.01, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-straight.glb",
+      "x": 0, "z": 4, "y": 0.01, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-straight.glb",
+      "x": 0, "z": -4, "y": 0.01, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-straight.glb",
+      "x": 4, "z": 0, "y": 0.01, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-straight.glb",
+      "x": -4, "z": 0, "y": 0.01, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-intersection.glb",
+      "x": 0, "z": 4, "y": 0.01, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-intersection.glb",
+      "x": 0, "z": -4, "y": 0.01, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-intersection.glb",
+      "x": 4, "z": 0, "y": 0.01, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "roads/Models/GLB%20format/road-intersection.glb",
+      "x": -4, "z": 0, "y": 0.01, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "industrial/Models/GLB%20format/building-a.glb",
+      "x": -7, "z": -7, "y": 0, "rotY": 0.79, "scale": 1,
+      "desiredHeight": 7.2
+    },
+    {
+      "asset": "industrial/Models/GLB%20format/building-b.glb",
+      "x": 7, "z": -7, "y": 0, "rotY": -0.79, "scale": 1,
+      "desiredHeight": 7.2
+    },
+    {
+      "asset": "industrial/Models/GLB%20format/building-c.glb",
+      "x": -7, "z": 7, "y": 0, "rotY": 2.36, "scale": 1,
+      "desiredHeight": 7.2
+    },
+    {
+      "asset": "industrial/Models/GLB%20format/building-d.glb",
+      "x": 7, "z": 7, "y": 0, "rotY": -2.36, "scale": 1,
+      "desiredHeight": 7.2
+    },
+    {
+      "asset": "industrial/Models/GLB%20format/chimney-small.glb",
+      "x": -5, "z": -5, "y": 0, "rotY": 0, "scale": 1,
+      "desiredHeight": 4.5
+    },
+    {
+      "asset": "industrial/Models/GLB%20format/chimney-medium.glb",
+      "x": 5, "z": 5, "y": 0, "rotY": 0, "scale": 1,
+      "desiredHeight": 5.5
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": 8.5, "z": 2, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": 8.5, "z": -2, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": -8.5, "z": 2, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": -8.5, "z": -2, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": 2, "z": 8.5, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": -2, "z": 8.5, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": 2, "z": -8.5, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": -2, "z": -8.5, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": 10, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": 10, "z": -4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": -10, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": -10, "z": -4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": 4, "z": 10, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": -4, "z": 10, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": 4, "z": -10, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": -4, "z": -10, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall-corner.glb",
+      "x": 10, "z": 4, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall-corner.glb",
+      "x": 10, "z": -4, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall-corner.glb",
+      "x": -10, "z": 4, "y": 0, "rotY": -1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall-corner.glb",
+      "x": -10, "z": -4, "y": 0, "rotY": 3.14, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": 10, "z": 6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": -10, "z": 6, "y": 0, "rotY": 0, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": 6, "z": 10, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": -6, "z": 10, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": 6, "z": -10, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/wall.glb",
+      "x": -6, "z": -10, "y": 0, "rotY": 1.57, "scale": 1
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/fence-1x3.glb",
+      "x": 9.5, "z": 1, "y": 0, "rotY": 1.57, "scale": 1,
+      "desiredHeight": 2.1
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/fence-1x3.glb",
+      "x": 9.5, "z": -1, "y": 0, "rotY": 1.57, "scale": 1,
+      "desiredHeight": 2.1
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/fence-1x3.glb",
+      "x": 1, "z": 9.5, "y": 0, "rotY": 0, "scale": 1,
+      "desiredHeight": 2.1
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/fence-1x3.glb",
+      "x": -1, "z": 9.5, "y": 0, "rotY": 0, "scale": 1,
+      "desiredHeight": 2.1
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/fence-1x3.glb",
+      "x": 1, "z": -9.5, "y": 0, "rotY": 0, "scale": 1,
+      "desiredHeight": 2.1
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/fence-1x3.glb",
+      "x": -1, "z": -9.5, "y": 0, "rotY": 0, "scale": 1,
+      "desiredHeight": 2.1
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/fence-1x3.glb",
+      "x": -9.5, "z": 1, "y": 0, "rotY": 1.57, "scale": 1,
+      "desiredHeight": 2.1
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/fence-1x3.glb",
+      "x": -9.5, "z": -1, "y": 0, "rotY": 1.57, "scale": 1,
+      "desiredHeight": 2.1
+    },
+    {
+      "asset": "industrial/Models/GLB%20format/detail-tank.glb",
+      "x": 3.5, "z": 3.5, "y": 0.7, "rotY": 0.3, "scale": 1.1,
+      "reactive": "barrel", "hp": 120
+    },
+    {
+      "asset": "industrial/Models/GLB%20format/detail-tank.glb",
+      "x": -3.5, "z": 3.2, "y": 0.7, "rotY": -0.2, "scale": 1.1,
+      "reactive": "barrel", "hp": 120
+    },
+    {
+      "asset": "industrial/Models/GLB%20format/detail-tank.glb",
+      "x": 3.5, "z": -3.5, "y": 0.7, "rotY": 0.6, "scale": 1.1,
+      "reactive": "barrel", "hp": 120
+    },
+    {
+      "asset": "industrial/Models/GLB%20format/detail-tank.glb",
+      "x": -3.8, "z": -3.5, "y": 0.7, "rotY": -0.5, "scale": 1.1,
+      "reactive": "barrel", "hp": 120
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/crate-color.glb",
+      "x": 2.5, "z": 6.5, "y": 0.55, "rotY": 0.4, "scale": 1.05,
+      "reactive": "crate", "hp": 70
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/crate.glb",
+      "x": -2.8, "z": 6.2, "y": 0.55, "rotY": -0.1, "scale": 1.05,
+      "reactive": "crate", "hp": 70
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/crate-color.glb",
+      "x": 2.8, "z": -6.5, "y": 0.55, "rotY": -0.3, "scale": 1.05,
+      "reactive": "crate", "hp": 70
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/crate.glb",
+      "x": -2.5, "z": -6.2, "y": 0.55, "rotY": 0.25, "scale": 1.05,
+      "reactive": "crate", "hp": 70
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/crate.glb",
+      "x": 6.5, "z": 2.8, "y": 0.55, "rotY": 0.5, "scale": 1.05,
+      "reactive": "crate", "hp": 70
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/crate-color.glb",
+      "x": -6.5, "z": 2.5, "y": 0.55, "rotY": -0.4, "scale": 1.05,
+      "reactive": "crate", "hp": 70
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/crate.glb",
+      "x": 6.5, "z": -2.8, "y": 0.55, "rotY": 0.15, "scale": 1.05,
+      "reactive": "crate", "hp": 70
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/crate-color.glb",
+      "x": -6.5, "z": -2.5, "y": 0.55, "rotY": -0.2, "scale": 1.05,
+      "reactive": "crate", "hp": 70
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/target-a-round.glb",
+      "x": 0, "z": 8, "y": 1.25, "rotY": 3.14, "scale": 1,
+      "reactive": "target", "hp": 40
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/target-b-round.glb",
+      "x": 2.5, "z": -8, "y": 1.25, "rotY": 0, "scale": 1,
+      "reactive": "target", "hp": 40
+    },
+    {
+      "asset": "prototype/Models/GLB%20format/target-a-square.glb",
+      "x": -2.5, "z": -8, "y": 1.25, "rotY": 0, "scale": 1,
+      "reactive": "target", "hp": 40
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/tree-large.glb",
+      "x": 9, "z": 9, "y": 0, "rotY": 0, "scale": 1,
+      "desiredHeight": 5.5
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/tree-large.glb",
+      "x": -9, "z": 9, "y": 0, "rotY": 0, "scale": 1,
+      "desiredHeight": 5.5
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/tree-small.glb",
+      "x": 9, "z": -9, "y": 0, "rotY": 0, "scale": 1,
+      "desiredHeight": 4.4
+    },
+    {
+      "asset": "suburban/Models/GLB%20format/tree-small.glb",
+      "x": -9, "z": -9, "y": 0, "rotY": 0, "scale": 1,
+      "desiredHeight": 4.4
+    }
+  ]
+}
