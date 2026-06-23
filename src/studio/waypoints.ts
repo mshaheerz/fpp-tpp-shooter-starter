@@ -16,7 +16,7 @@ export function clearWaypointLines() {
 
 /** Rebuild all waypoint connector lines based on current waypoint order */
 export function rebuildWaypointLines() {
-  if (state.isDragging) {
+  if (state.transformDragging) {
     // Defer rebuild to avoid geometry thrash during drag
     state._waypointsDirty = true
     return
